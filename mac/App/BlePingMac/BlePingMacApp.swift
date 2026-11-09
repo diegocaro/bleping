@@ -13,10 +13,10 @@ struct BlePingMacApp: App {
         }
         .menuBarExtraStyle(.window)
 
-        Window("bleping Settings", id: "settings") {
+        // The standard Settings window: toolbar tabs, titled after the selected tab.
+        Settings {
             SettingsView(model: model, engine: model.engine)
         }
-        .windowResizability(.contentSize)
 
         Window("bleping Log", id: "log") {
             LogView(model: model)
@@ -41,6 +41,7 @@ struct MenuPanel: View {
     @ObservedObject var model: AppModel
     let engine: Engine
     @Environment(\.openWindow) private var openWindow
+    @Environment(\.openSettings) private var openSettings
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
@@ -58,8 +59,8 @@ struct MenuPanel: View {
             .padding(14)
             Divider()
             footer
-                .padding(.horizontal, 14)
-                .padding(.vertical, 10)
+                // 6 + the row's own 8 lines the text up with the 14 pt margins above.
+                .padding(6)
         }
         .frame(width: 340)
     }
@@ -77,34 +78,50 @@ struct MenuPanel: View {
         }
     }
 
+    /// Menu-style rows, like the bottom of Apple's own menu bar panels (Wi-Fi, Bluetooth, Sound).
     private var footer: some View {
-        let open = WindowOpener(openWindow: openWindow)
-        return HStack(spacing: 8) {
+        VStack(spacing: 0) {
             if engine.phone == nil && engine.pairing == nil {
-                Button("Pair iPhone…") { engine.startPairing() }
-                    .buttonStyle(.borderedProminent)
+                MenuRow(title: "Pair iPhone…") { engine.startPairing() }
             }
-            Spacer()
-            FooterIcon(symbol: "gearshape", help: "Settings") { open("settings") }
-            FooterIcon(symbol: "power", help: "Quit bleping") { NSApp.terminate(nil) }
+            MenuRow(title: "Settings…", shortcut: "⌘,") {
+                // No Dock icon, so bring the app forward or the window opens behind others.
+                NSApp.activate(ignoringOtherApps: true)
+                openSettings()
+            }
+                .keyboardShortcut(",", modifiers: .command)
+            MenuRow(title: "Quit bleping", shortcut: "⌘Q") { NSApp.terminate(nil) }
+                .keyboardShortcut("q", modifiers: .command)
         }
-        .controlSize(.small)
     }
 }
 
-struct FooterIcon: View {
-    let symbol: String
-    let help: String
+/// A full-width row that highlights on hover, like a menu item.
+struct MenuRow: View {
+    let title: String
+    var shortcut: String? = nil
     let action: () -> Void
+    @State private var hovering = false
 
     var body: some View {
         Button(action: action) {
-            Image(systemName: symbol)
-                .frame(width: 22, height: 22)
-                .contentShape(Rectangle())
+            HStack {
+                Text(title)
+                Spacer()
+                if let shortcut {
+                    Text(shortcut).foregroundStyle(hovering ? AnyShapeStyle(.white.opacity(0.8)) : AnyShapeStyle(.secondary))
+                }
+            }
+            .foregroundStyle(hovering ? AnyShapeStyle(.white) : AnyShapeStyle(.primary))
+            .padding(.horizontal, 8)
+            .padding(.vertical, 4)
+            .frame(maxWidth: .infinity)
+            .background(hovering ? AnyShapeStyle(Color.accentColor) : AnyShapeStyle(.clear),
+                        in: RoundedRectangle(cornerRadius: 5, style: .continuous))
+            .contentShape(Rectangle())
         }
-        .buttonStyle(.borderless)
-        .help(help)
+        .buttonStyle(.plain)
+        .onHover { hovering = $0 }
     }
 }
 
@@ -348,8 +365,108 @@ struct Notice: View {
 struct SettingsView: View {
     @ObservedObject var model: AppModel
     let engine: Engine
-    @Environment(\.openWindow) private var openWindow
+
+    private enum Tab: String { case general, iPhone, advanced }
+    /// Reopens on the tab you last used.
+    @AppStorage("settingsTab") private var tab = Tab.general
+
+    var body: some View {
+        TabView(selection: $tab) {
+            GeneralSettings(model: model)
+                .tabItem { Label("General", systemImage: "gearshape") }
+                .tag(Tab.general)
+            PhoneSettings(model: model, engine: engine)
+                .tabItem { Label("iPhone", systemImage: "iphone") }
+                .tag(Tab.iPhone)
+            AdvancedSettings(model: model, engine: engine)
+                .tabItem { Label("Advanced", systemImage: "wrench.and.screwdriver") }
+                .tag(Tab.advanced)
+        }
+        .frame(width: 460)
+        .onAppear {
+            // The panel's Pair buttons open pairing here; jump to it if pairing is under way.
+            if engine.pairing != nil { tab = .iPhone }
+        }
+        .onChange(of: engine.pairing != nil) { pairing in
+            if pairing { tab = .iPhone }
+        }
+    }
+}
+
+struct GeneralSettings: View {
+    @ObservedObject var model: AppModel
+
+    var body: some View {
+        Form {
+            Section {
+                Toggle("Open bleping at login",
+                       isOn: Binding(get: { model.openAtLogin }, set: { model.setOpenAtLogin($0) }))
+            }
+            Section {
+                Toggle(isOn: $model.catchUp) {
+                    Text("Send missed notifications")
+                    Text("When your iPhone reconnects, send it the notifications from the last hour it missed. When off, notifications that arrive while it's away are skipped.")
+                }
+            }
+        }
+        .formStyle(.grouped)
+        .fixedSize(horizontal: false, vertical: true)
+    }
+}
+
+struct PhoneSettings: View {
+    @ObservedObject var model: AppModel
+    let engine: Engine
     @State private var confirmUnpair = false
+
+    var body: some View {
+        Form {
+            if let pairing = engine.pairing {
+                Section {
+                    PairingBox(pairing: pairing, engine: engine)
+                }
+            } else if let phone = engine.phone {
+                Section {
+                    LabeledContent("Paired iPhone", value: phone.name)
+                    LabeledContent("Paired since", value: phone.pairedAt.formatted(date: .abbreviated, time: .shortened))
+                    LabeledContent("Status", value: engine.phoneConnected ? "Connected" : "Not connected")
+                }
+                Section {
+                    HStack {
+                        Button("Pair a Different iPhone…") { engine.startPairing() }
+                        Spacer()
+                        Button("Unpair…", role: .destructive) { confirmUnpair = true }
+                    }
+                }
+            } else {
+                Section {
+                    LabeledContent("Paired iPhone", value: "None")
+                } footer: {
+                    Text("Pair your iPhone to send it your Mac's notifications. You'll need the bleping app on your iPhone.")
+                }
+                Section {
+                    HStack {
+                        Spacer()
+                        Button("Pair iPhone…") { engine.startPairing() }
+                            .keyboardShortcut(.defaultAction)
+                    }
+                }
+            }
+        }
+        .formStyle(.grouped)
+        .fixedSize(horizontal: false, vertical: true)
+        .confirmationDialog("Unpair \(engine.phone?.name ?? "iPhone")?", isPresented: $confirmUnpair) {
+            Button("Unpair", role: .destructive) { engine.unpair() }
+        } message: {
+            Text("Notifications stop until you pair again. Also tap Unpair in the iPhone app.")
+        }
+    }
+}
+
+struct AdvancedSettings: View {
+    @ObservedObject var model: AppModel
+    let engine: Engine
+    @Environment(\.openWindow) private var openWindow
     /// The last test notification sent from here, to show what happened to it.
     @State private var testID: String?
     /// True for a moment after clicking Send Test, so the old result visibly clears.
@@ -357,33 +474,7 @@ struct SettingsView: View {
 
     var body: some View {
         Form {
-            Section("iPhone") {
-                if let pairing = engine.pairing {
-                    // The menu bar panel closes while this window is in front, so show pairing here too.
-                    PairingBox(pairing: pairing, engine: engine)
-                } else if let phone = engine.phone {
-                    LabeledContent("Paired with", value: phone.name)
-                    LabeledContent("Since", value: phone.pairedAt.formatted(date: .abbreviated, time: .shortened))
-                    HStack {
-                        Button("Pair a Different iPhone…") { engine.startPairing() }
-                        Spacer()
-                        Button("Unpair…", role: .destructive) { confirmUnpair = true }
-                    }
-                } else {
-                    LabeledContent("Paired with", value: "Nobody yet")
-                    Button("Pair iPhone…") { engine.startPairing() }
-                }
-            }
-            Section("Notifications") {
-                Toggle(isOn: $model.catchUp) {
-                    Text("Send missed notifications")
-                    Text("When your iPhone reconnects, send it the notifications from the last hour it missed. When off, notifications that arrive while it's away are skipped.")
-                }
-            }
-            Section("General") {
-                Toggle("Open at Login", isOn: Binding(get: { model.openAtLogin }, set: { model.setOpenAtLogin($0) }))
-            }
-            Section("Troubleshooting") {
+            Section {
                 LabeledContent {
                     Button("Send Test") { sendTest() }
                         .disabled(engine.phone == nil || testing)
@@ -414,17 +505,11 @@ struct SettingsView: View {
             }
         }
         .formStyle(.grouped)
-        .frame(width: 440)
-        .fixedSize()
-        .confirmationDialog("Unpair \(engine.phone?.name ?? "iPhone")?", isPresented: $confirmUnpair) {
-            Button("Unpair", role: .destructive) { engine.unpair() }
-        } message: {
-            Text("Notifications stop until you pair again. Also tap Unpair in the iPhone app.")
-        }
+        .fixedSize(horizontal: false, vertical: true)
     }
 }
 
-extension SettingsView {
+extension AdvancedSettings {
     /// Clears the previous result, then sends after a short pause so each click shows a fresh result.
     private func sendTest() {
         testID = nil
