@@ -14,6 +14,9 @@ public final class Engine {
         public var only: Set<String> = []
         /// Never forward these bundle IDs.
         public var ignore: Set<String> = []
+        /// Keep the last hour's notifications and resend them when the iPhone reconnects.
+        /// When off, notifications that arrive while the iPhone is away are skipped.
+        public var catchUp = true
 
         public init() {}
     }
@@ -37,6 +40,8 @@ public final class Engine {
         case sent
         /// The iPhone wasn't connected; it gets this when it reconnects (within an hour).
         case queued
+        /// The iPhone wasn't connected and catching up is off, so it was skipped.
+        case skipped
         /// No iPhone paired.
         case notPaired
     }
@@ -74,7 +79,9 @@ public final class Engine {
         didSet { logHandler = { [weak self] line in self?.onLog?(line) } }
     }
 
-    public var options: Options
+    public var options: Options {
+        didSet { if !options.catchUp { recent.removeAll() } }
+    }
 
     private let peripheral = Peripheral()
     private var paired: PairedPhone?
@@ -233,8 +240,10 @@ public final class Engine {
     }
 
     private func send(_ notification: MacNotification) {
-        recent.append(notification)
-        prune()
+        if options.catchUp {
+            recent.append(notification)
+            prune()
+        }
         let text = [notification.title, notification.subtitle].compactMap { $0 }.map { "\"\($0)\"" }
         let describe = notification.app + (text.isEmpty ? "" : ": " + text.joined(separator: " · "))
         let delivery: Delivery
@@ -248,9 +257,12 @@ public final class Engine {
                     log("Could not encrypt notification: \(error)")
                     delivery = .queued
                 }
-            } else {
+            } else if options.catchUp {
                 log("\(describe) → iPhone not connected; it gets this when it reconnects (within 1 h)")
                 delivery = .queued
+            } else {
+                log("\(describe) → iPhone not connected; skipped (catching up is off)")
+                delivery = .skipped
             }
         } else {
             log("\(describe) (not sent: no iPhone paired)")
@@ -265,6 +277,7 @@ public final class Engine {
     /// Sends the recent notifications to an iPhone that asked to catch up after connecting.
     /// It drops the ones it already has.
     private func replay(to central: CBCentral) {
+        guard options.catchUp else { return }
         prune()
         guard let eventKey, !recent.isEmpty else { return }
         for notification in recent {

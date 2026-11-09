@@ -24,6 +24,7 @@ final class AppModel: ObservableObject {
         engine.onLog = { [weak self] line in
             MainActor.assumeIsolated { self?.appendLog(line) }
         }
+        engine.options.catchUp = catchUp
         engine.start()
         // First launch: nothing paired yet, so be ready to pair straight away.
         if engine.phone == nil { engine.startPairing() }
@@ -65,6 +66,13 @@ final class AppModel: ObservableObject {
         case .unsupported: return "This Mac doesn't support Bluetooth LE"
         case .unavailable: return "Bluetooth isn't available"
         }
+    }
+
+    // MARK: Settings
+
+    /// Resend missed notifications when the iPhone reconnects. Saved across launches.
+    @AppStorage("catchUp") var catchUp = true {
+        didSet { engine.options.catchUp = catchUp }
     }
 
     // MARK: Actions

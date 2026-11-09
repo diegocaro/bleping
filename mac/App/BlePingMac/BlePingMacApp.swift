@@ -13,6 +13,11 @@ struct BlePingMacApp: App {
         }
         .menuBarExtraStyle(.window)
 
+        Window("bleping Settings", id: "settings") {
+            SettingsView(model: model)
+        }
+        .windowResizability(.contentSize)
+
         Window("bleping log", id: "log") {
             LogView(model: model)
         }
@@ -116,11 +121,11 @@ struct MenuPanel: View {
                     NSApp.activate(ignoringOtherApps: true)
                 } label: { Image(systemName: "doc.text.magnifyingglass") }
                     .help("Show log")
-            }
-            HStack {
-                Toggle("Open at Login", isOn: Binding(get: { model.openAtLogin }, set: { model.setOpenAtLogin($0) }))
-                    .toggleStyle(.checkbox)
-                Spacer()
+                Button {
+                    openWindow(id: "settings")
+                    NSApp.activate(ignoringOtherApps: true)
+                } label: { Image(systemName: "gearshape") }
+                    .help("Settings")
                 Button("Quit") { NSApp.terminate(nil) }
             }
         }
@@ -211,6 +216,7 @@ struct ForwardedRow: View {
         switch item.delivery {
         case .sent: return "checkmark.circle.fill"
         case .queued: return "clock"
+        case .skipped: return "xmark.circle"
         case .notPaired: return "minus.circle"
         }
     }
@@ -219,6 +225,7 @@ struct ForwardedRow: View {
         switch item.delivery {
         case .sent: return .green
         case .queued: return .orange
+        case .skipped: return .secondary
         case .notPaired: return .secondary
         }
     }
@@ -227,6 +234,7 @@ struct ForwardedRow: View {
         switch item.delivery {
         case .sent: return "Sent to your iPhone"
         case .queued: return "Waiting for your iPhone to reconnect"
+        case .skipped: return "Not sent: your iPhone wasn't connected (catching up is off)"
         case .notPaired: return "Not sent: no iPhone paired"
         }
     }
@@ -261,6 +269,29 @@ struct Notice: View {
         }
         .padding(10)
         .background(.orange.opacity(0.12), in: RoundedRectangle(cornerRadius: 8))
+    }
+}
+
+// MARK: - Settings window
+
+struct SettingsView: View {
+    @ObservedObject var model: AppModel
+
+    var body: some View {
+        Form {
+            Section {
+                Toggle(isOn: $model.catchUp) {
+                    Text("Send missed notifications")
+                    Text("When your iPhone reconnects, send it the notifications from the last hour it missed. When off, notifications that arrive while it's away are skipped.")
+                }
+            }
+            Section {
+                Toggle("Open at Login", isOn: Binding(get: { model.openAtLogin }, set: { model.setOpenAtLogin($0) }))
+            }
+        }
+        .formStyle(.grouped)
+        .frame(width: 420)
+        .fixedSize()
     }
 }
 

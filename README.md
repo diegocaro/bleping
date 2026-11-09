@@ -26,8 +26,8 @@ Mail notification ─▶ usernoted DB ─▶ bleping (Mac) ══ encrypted BLE 
 - **Sending.** Each notification is encrypted with ChaCha20-Poly1305 and pushed over a GATT
   characteristic, split into chunks if it's bigger than one BLE packet. Nearby devices can connect but
   can't read or fake anything.
-- **Catching up.** The Mac keeps the last hour's notifications (up to 20) and resends them when the
-  iPhone reconnects. The iPhone drops ones it has already shown, and anything older than an hour.
+- **Catching up** (can be turned off). The Mac keeps the last hour's notifications (up to 20), and the
+  iPhone asks for them every time it connects. The iPhone drops ones it has already shown, and anything older than an hour.
 
 [`mac/Sources/BlePingCore/Wire.swift`](mac/Sources/BlePingCore/Wire.swift) holds the wire format and crypto. Both
 the Mac side and the iPhone app compile that one file.
@@ -53,7 +53,9 @@ open /Applications/bleping.app
 
 It lives in the menu bar (no Dock icon). The panel shows the connection, the pairing code while
 pairing, and the last notifications with whether each reached the iPhone. It also has Send Test,
-Pair / Unpair, a log window and Open at Login. Allow Bluetooth when asked and turn on Full Disk Access
+Pair / Unpair and a log window. Settings (the gear button) has Open at Login and **Send missed
+notifications**: turn it off to skip notifications that arrive while the iPhone is away, instead of
+sending them when it reconnects. Allow Bluetooth when asked and turn on Full Disk Access
 for **bleping** (the panel links to the setting). Set your own `DEVELOPMENT_TEAM` in
 `mac/App/project.yml`.
 
@@ -83,6 +85,7 @@ bleping unpair     forget the paired iPhone
 --interval SEC     DB poll interval (default 1)
 --only IDS         only these bundle IDs, comma-separated, e.g. com.apple.mail,com.apple.MobileSMS
 --ignore IDS       skip these bundle IDs
+--no-catch-up      don't resend missed notifications when the iPhone reconnects
 --test             send a test notification at startup
 ```
 

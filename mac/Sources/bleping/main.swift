@@ -27,6 +27,7 @@ struct Options {
           --interval SEC     how often to check for new notifications (default 1)
           --only IDS         comma-separated bundle IDs to forward (default: all)
           --ignore IDS       comma-separated bundle IDs to skip
+          --no-catch-up      don't resend missed notifications when the iPhone reconnects
           --test             send a test notification at startup
           -h, --help         show this help
 
@@ -53,6 +54,7 @@ struct Options {
                 o.engine.interval = v
             case "--only": o.engine.only = ids(value(arg))
             case "--ignore": o.engine.ignore = ids(value(arg))
+            case "--no-catch-up": o.engine.catchUp = false
             case "--test": o.test = true
             case "-h", "--help": print(usage); exit(0)
             default: fail("unknown option \(arg)")
