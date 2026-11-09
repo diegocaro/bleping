@@ -190,8 +190,10 @@ public final class Engine {
     // MARK: Notifications
 
     public func sendTest() {
+        let now = Date()
+        let time = DateFormatter.localizedString(from: now, dateStyle: .none, timeStyle: .short)
         send(MacNotification(id: "test-\(UUID().uuidString)", app: "bleping", bundleID: "dev.bleping.mac",
-                             title: "Test notification", date: Date()))
+                             title: "Test notification", subtitle: "From \(macName) · \(time)", date: now))
     }
 
     /// Tries to open Notification Center's database again (after granting Full Disk Access).
