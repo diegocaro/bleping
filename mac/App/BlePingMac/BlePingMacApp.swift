@@ -80,18 +80,11 @@ struct MenuPanel: View {
     private var footer: some View {
         let open = WindowOpener(openWindow: openWindow)
         return HStack(spacing: 8) {
-            if engine.phone == nil {
-                if engine.pairing == nil {
-                    Button("Pair iPhone…") { engine.startPairing() }
-                        .buttonStyle(.borderedProminent)
-                }
-            } else if engine.pairing == nil {
-                Button("Send Test") { engine.sendTest() }
+            if engine.phone == nil && engine.pairing == nil {
+                Button("Pair iPhone…") { engine.startPairing() }
+                    .buttonStyle(.borderedProminent)
             }
             Spacer()
-            if model.showLog {
-                FooterIcon(symbol: "doc.text.magnifyingglass", help: "Show Log") { open("log") }
-            }
             FooterIcon(symbol: "gearshape", help: "Settings") { open("settings") }
             FooterIcon(symbol: "power", help: "Quit bleping") { NSApp.terminate(nil) }
         }
@@ -357,6 +350,8 @@ struct SettingsView: View {
     let engine: Engine
     @Environment(\.openWindow) private var openWindow
     @State private var confirmUnpair = false
+    /// The last test notification sent from here, to show what happened to it.
+    @State private var testID: String?
 
     var body: some View {
         Form {
@@ -384,11 +379,24 @@ struct SettingsView: View {
                 Toggle("Open at Login", isOn: Binding(get: { model.openAtLogin }, set: { model.setOpenAtLogin($0) }))
             }
             Section("Troubleshooting") {
-                Toggle(isOn: $model.showLog) {
-                    Text("Show log button")
-                    Text("Adds a button to the menu bar panel that opens bleping's log.")
+                LabeledContent {
+                    Button("Send Test") { testID = engine.sendTest() }
+                        .disabled(engine.phone == nil)
+                } label: {
+                    Text("Test notification")
+                    if let result = testResult {
+                        Label(result.text, systemImage: result.symbol)
+                            .foregroundStyle(result.color)
+                    } else {
+                        Text("Sends a notification to your iPhone to check the connection.")
+                    }
                 }
-                Button("Open Log") { WindowOpener(openWindow: openWindow)("log") }
+                LabeledContent {
+                    Button("Open Log") { WindowOpener(openWindow: openWindow)("log") }
+                } label: {
+                    Text("Log")
+                    Text("What bleping is doing, for troubleshooting.")
+                }
             }
         }
         .formStyle(.grouped)
@@ -398,6 +406,20 @@ struct SettingsView: View {
             Button("Unpair", role: .destructive) { engine.unpair() }
         } message: {
             Text("Notifications stop until you pair again. Also tap Unpair in the iPhone app.")
+        }
+    }
+}
+
+extension SettingsView {
+    /// What happened to the last test notification (it updates if it's delivered later).
+    private var testResult: (text: String, symbol: String, color: Color)? {
+        guard let testID, let item = engine.forwarded.first(where: { $0.id == testID }) else { return nil }
+        let phone = engine.phone?.name ?? "your iPhone"
+        switch item.delivery {
+        case .sent: return ("Sent to \(phone)", "checkmark.circle.fill", .green)
+        case .queued: return ("\(phone) isn't connected. It gets the test when it reconnects.", "clock.fill", .orange)
+        case .skipped: return ("Not sent: \(phone) isn't connected.", "xmark.circle.fill", .secondary)
+        case .notPaired: return ("Not sent: no iPhone paired.", "minus.circle.fill", .secondary)
         }
     }
 }

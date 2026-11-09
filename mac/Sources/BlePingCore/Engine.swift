@@ -197,11 +197,15 @@ public final class Engine {
 
     // MARK: Notifications
 
-    public func sendTest() {
+    /// Sends a test notification and returns its ID, to find it in `forwarded`.
+    @discardableResult
+    public func sendTest() -> String {
+        let id = "test-\(UUID().uuidString)"
         let now = Date()
         let time = DateFormatter.localizedString(from: now, dateStyle: .none, timeStyle: .short)
-        send(MacNotification(id: "test-\(UUID().uuidString)", app: "bleping", bundleID: "dev.bleping.mac",
+        send(MacNotification(id: id, app: "bleping", bundleID: "dev.bleping.mac",
                              title: "Test notification", subtitle: "From \(macName) · \(time)", date: now))
+        return id
     }
 
     /// Tries to open Notification Center's database again (after granting Full Disk Access).

@@ -52,10 +52,10 @@ open /Applications/bleping.app
 ```
 
 It lives in the menu bar (no Dock icon). The panel shows the connection, the pairing code while
-pairing, and the last notifications with whether each reached the iPhone. It also has Send Test,
-Pair / Unpair and a log window. Settings (the gear button) has Open at Login and **Send missed
-notifications**: turn it off to skip notifications that arrive while the iPhone is away, instead of
-sending them when it reconnects. Allow Bluetooth when asked and turn on Full Disk Access
+pairing, and the last notifications (with their app icons) and whether each reached the iPhone.
+Settings (the gear button) has pairing and unpairing, **Send missed notifications** (turn it off to
+skip notifications that arrive while the iPhone is away instead of sending them when it reconnects),
+Open at Login, Send Test and the log. Allow Bluetooth when asked and turn on Full Disk Access
 for **bleping** (the panel links to the setting). Set your own `DEVELOPMENT_TEAM` in
 `mac/App/project.yml`.
 

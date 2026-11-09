@@ -75,9 +75,6 @@ final class AppModel: ObservableObject {
         didSet { engine.options.catchUp = catchUp }
     }
 
-    /// Show the log button in the menu bar panel (for troubleshooting).
-    @AppStorage("showLog") var showLog = false
-
     // MARK: Actions
 
     func setOpenAtLogin(_ on: Bool) {
