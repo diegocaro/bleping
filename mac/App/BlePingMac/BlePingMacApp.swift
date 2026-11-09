@@ -352,6 +352,8 @@ struct SettingsView: View {
     @State private var confirmUnpair = false
     /// The last test notification sent from here, to show what happened to it.
     @State private var testID: String?
+    /// True for a moment after clicking Send Test, so the old result visibly clears.
+    @State private var testing = false
 
     var body: some View {
         Form {
@@ -380,13 +382,22 @@ struct SettingsView: View {
             }
             Section("Troubleshooting") {
                 LabeledContent {
-                    Button("Send Test") { testID = engine.sendTest() }
-                        .disabled(engine.phone == nil)
+                    Button("Send Test") { sendTest() }
+                        .disabled(engine.phone == nil || testing)
                 } label: {
-                    Text("Test notification")
-                    if let result = testResult {
-                        Label(result.text, systemImage: result.symbol)
-                            .foregroundStyle(result.color)
+                    HStack(spacing: 5) {
+                        Text("Test notification")
+                        if testing {
+                            ProgressView().controlSize(.mini)
+                        } else if let result = testResult {
+                            Image(systemName: result.symbol)
+                                .foregroundStyle(result.color)
+                                .help(result.text)
+                        }
+                    }
+                    // Explain only when it didn't go straight through.
+                    if let result = testResult, result.symbol != "checkmark.circle.fill" {
+                        Text(result.text)
                     } else {
                         Text("Sends a notification to your iPhone to check the connection.")
                     }
@@ -411,6 +422,16 @@ struct SettingsView: View {
 }
 
 extension SettingsView {
+    /// Clears the previous result, then sends after a short pause so each click shows a fresh result.
+    private func sendTest() {
+        testID = nil
+        testing = true
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.6) {
+            testID = engine.sendTest()
+            testing = false
+        }
+    }
+
     /// What happened to the last test notification (it updates if it's delivered later).
     private var testResult: (text: String, symbol: String, color: Color)? {
         guard let testID, let item = engine.forwarded.first(where: { $0.id == testID }) else { return nil }
