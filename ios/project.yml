@@ -1,0 +1,31 @@
+# Generate the Xcode project with:  brew install xcodegen && xcodegen
+name: BlePing
+options:
+  bundleIdPrefix: dev.bleping
+  deploymentTarget:
+    iOS: "16.0"
+targets:
+  BlePing:
+    type: application
+    platform: iOS
+    sources:
+      - BlePing
+      # Wire format and crypto, shared with the Mac tool (one copy, so they can't drift).
+      - path: ../mac/Sources/bleping/Wire.swift
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: dev.bleping.phone
+        MARKETING_VERSION: "1.0"
+        CURRENT_PROJECT_VERSION: "1"
+        GENERATE_INFOPLIST_FILE: YES
+        TARGETED_DEVICE_FAMILY: "1"
+        # Set your team in Xcode (Signing & Capabilities) or here:
+        DEVELOPMENT_TEAM: 9DVD654W58
+        CODE_SIGN_STYLE: Automatic
+    info:
+      path: BlePing/Info.plist
+      properties:
+        CFBundleDisplayName: bleping
+        UILaunchScreen: {}
+        NSBluetoothAlwaysUsageDescription: bleping connects to your Mac over Bluetooth to show its notifications on your iPhone.
+        UIBackgroundModes: [bluetooth-central]
