@@ -80,6 +80,14 @@ final class Peripheral: NSObject, CBPeripheralManagerDelegate {
 
     func peripheralManagerDidUpdateState(_ peripheral: CBPeripheralManager) {
         log("Bluetooth: \(peripheral.state.label)")
+        if peripheral.state != .poweredOn {
+            // macOS drops our service (and every connection) when Bluetooth goes off, so set
+            // it up again from scratch when it comes back.
+            serviceAdded = false
+            pairingChar = nil
+            eventsChar = nil
+            outbox.removeAll()
+        }
         onStateChange?(peripheral.state)
         switch peripheral.state {
         case .poweredOn:
