@@ -11,7 +11,7 @@ targets:
     sources:
       - BlePing
       # Wire format and crypto, shared with the Mac tool (one copy, so they can't drift).
-      - path: ../mac/Sources/bleping/Wire.swift
+      - path: ../mac/Sources/BlePingCore/Wire.swift
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: dev.bleping.phone

@@ -1,0 +1,35 @@
+# The bleping menu bar app. Generate the Xcode project with:  xcodegen  (in this folder)
+name: BlePingMac
+options:
+  deploymentTarget:
+    macOS: "14.0"
+packages:
+  BlePingCore:
+    path: ..
+targets:
+  BlePingMac:
+    type: application
+    platform: macOS
+    sources: [BlePingMac]
+    dependencies:
+      - package: BlePingCore
+    settings:
+      base:
+        PRODUCT_NAME: bleping
+        PRODUCT_BUNDLE_IDENTIFIER: dev.bleping.macapp
+        MARKETING_VERSION: "1.0"
+        CURRENT_PROJECT_VERSION: "1"
+        GENERATE_INFOPLIST_FILE: YES
+        DEVELOPMENT_TEAM: 9DVD654W58
+        CODE_SIGN_STYLE: Automatic
+        # Not sandboxed: it has to read Notification Center's database (with Full Disk Access).
+        ENABLE_APP_SANDBOX: NO
+        ENABLE_HARDENED_RUNTIME: NO
+    info:
+      path: BlePingMac/Info.plist
+      properties:
+        CFBundleDisplayName: bleping
+        # Menu bar only: no Dock icon.
+        LSUIElement: true
+        LSApplicationCategoryType: public.app-category.utilities
+        NSBluetoothAlwaysUsageDescription: bleping sends your Mac notifications to your paired iPhone over Bluetooth.

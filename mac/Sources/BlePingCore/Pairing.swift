@@ -51,6 +51,15 @@ final class PairingSession {
         case waitingForConfirm(central: CBCentral, key: SymmetricKey)
     }
 
+    enum Progress {
+        case phoneConnecting
+        case code(String)
+        case failed(String)
+    }
+
+    /// Steps the user should see (the code to type, failures).
+    var onProgress: ((Progress) -> Void)?
+
     private let peripheral: Peripheral
     private let onPaired: (PairedPhone) -> Void
     private var state = State.waitingForPhone
@@ -79,6 +88,7 @@ final class PairingSession {
             let macNonce = PairingCrypto.randomBytes(PairMessage.nonceLength)
             state = .committed(central: central, phoneKey: phoneKey, macPrivate: macPrivate, macNonce: macNonce)
             log("An iPhone is pairing…")
+            onProgress?(.phoneConnecting)
             peripheral.sendPairing(.commit(macKey: macKey, commitment: PairingCrypto.commitment(
                 macKey: macKey, phoneKey: phoneKey, macNonce: macNonce)), to: central)
 
@@ -94,6 +104,7 @@ final class PairingSession {
                                           phoneNonce: phoneNonce, macNonce: macNonce)
             state = .waitingForConfirm(central: central, key: key)
             peripheral.sendPairing(.macNonce(macNonce), to: central)
+            onProgress?(.code(code))
             log("""
                 Pairing code:  \(PairingCrypto.display(code))
                   Type it in the bleping app on your iPhone.
@@ -120,6 +131,7 @@ final class PairingSession {
         case (.failed(let reason), _):
             log("Pairing cancelled on the iPhone: \(reason)")
             state = .waitingForPhone
+            onProgress?(.failed("Cancelled on the iPhone"))
 
         default:
             fail("Unexpected pairing step. Start pairing again on the iPhone.", to: central)
@@ -137,6 +149,7 @@ final class PairingSession {
         log("Pairing failed: \(reason)")
         peripheral.sendPairing(.failed(reason), to: central)
         state = .waitingForPhone
+        onProgress?(.failed(reason))
     }
 }
 

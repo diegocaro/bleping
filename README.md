@@ -29,10 +29,38 @@ Mail notification ─▶ usernoted DB ─▶ bleping (Mac) ══ encrypted BLE 
 - **Catching up.** The Mac keeps the last hour's notifications (up to 20) and resends them when the
   iPhone reconnects. The iPhone drops ones it has already shown, and anything older than an hour.
 
-[`mac/Sources/bleping/Wire.swift`](mac/Sources/bleping/Wire.swift) holds the wire format and crypto. Both
-the Mac tool and the iPhone app compile that one file.
+[`mac/Sources/BlePingCore/Wire.swift`](mac/Sources/BlePingCore/Wire.swift) holds the wire format and crypto. Both
+the Mac side and the iPhone app compile that one file.
 
-## Mac
+## Layout
+
+```
+mac/Sources/BlePingCore/   shared Mac logic: Bluetooth, pairing, notification watching (Engine.swift ties it together)
+mac/Sources/bleping/       the command-line tool
+mac/App/                   the menu bar app (XcodeGen project)
+ios/                       the iPhone app (XcodeGen project)
+```
+
+## Mac menu bar app
+
+```bash
+cd mac/App && xcodegen
+xcodebuild -project BlePingMac.xcodeproj -scheme BlePingMac -configuration Release \
+  -derivedDataPath build -allowProvisioningUpdates build
+cp -R build/Build/Products/Release/bleping.app /Applications/
+open /Applications/bleping.app
+```
+
+It lives in the menu bar (no Dock icon). The panel shows the connection, the pairing code while
+pairing, and the last notifications with whether each reached the iPhone. It also has Send Test,
+Pair / Unpair, a log window and Open at Login. Allow Bluetooth when asked and turn on Full Disk Access
+for **bleping** (the panel links to the setting). Set your own `DEVELOPMENT_TEAM` in
+`mac/App/project.yml`.
+
+The app and the CLI share the pairing (`~/Library/Application Support/bleping/pairing.json`), so
+pairing with either works for both. Run only one of them at a time.
+
+## Mac command-line tool
 
 ```bash
 cd mac

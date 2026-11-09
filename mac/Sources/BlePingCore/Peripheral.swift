@@ -8,6 +8,10 @@ final class Peripheral: NSObject, CBPeripheralManagerDelegate {
     var onPairingMessage: ((Data, CBCentral) -> Void)?
     /// An iPhone subscribed to events (it has checked this is its Mac): time to replay.
     var onEventsSubscribed: ((CBCentral) -> Void)?
+    /// Bluetooth turned on/off or permission changed.
+    var onStateChange: ((CBManagerState) -> Void)?
+    /// An iPhone subscribed to or left the events characteristic.
+    var onSubscribersChanged: (() -> Void)?
     /// Served on the pairing-ID characteristic. Empty when nothing is paired.
     var pairingID = Data()
 
@@ -76,11 +80,12 @@ final class Peripheral: NSObject, CBPeripheralManagerDelegate {
 
     func peripheralManagerDidUpdateState(_ peripheral: CBPeripheralManager) {
         log("Bluetooth: \(peripheral.state.label)")
+        onStateChange?(peripheral.state)
         switch peripheral.state {
         case .poweredOn:
             setUpService()
         case .unauthorized:
-            log("Allow Bluetooth for your terminal app in System Settings › Privacy & Security › Bluetooth")
+            log("Allow Bluetooth for bleping (or the terminal running it) in System Settings › Privacy & Security › Bluetooth")
         default:
             break
         }
@@ -142,12 +147,16 @@ final class Peripheral: NSObject, CBPeripheralManagerDelegate {
         if characteristic.uuid == Wire.eventsUUID {
             log("iPhone connected")
             onEventsSubscribed?(central)
+            onSubscribersChanged?()
         }
     }
 
     func peripheralManager(_ peripheral: CBPeripheralManager, central: CBCentral,
                            didUnsubscribeFrom characteristic: CBCharacteristic) {
-        if characteristic.uuid == Wire.eventsUUID { log("iPhone disconnected") }
+        if characteristic.uuid == Wire.eventsUUID {
+            log("iPhone disconnected")
+            onSubscribersChanged?()
+        }
         outbox.removeAll { $0.to?.contains(central) == true }
     }
 

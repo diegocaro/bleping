@@ -23,7 +23,7 @@ final class NotificationWatcher {
             case .cannotOpen(let msg):
                 return """
                 Cannot open the Notification Center database (\(msg)).
-                Grant Full Disk Access to the app running bleping (Terminal, iTerm, …) in
+                Grant Full Disk Access to bleping (or the terminal running it) in
                 System Settings › Privacy & Security › Full Disk Access, then restart it.
                 """
             case .query(let msg):
