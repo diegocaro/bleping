@@ -6,6 +6,7 @@ import UserNotifications
 struct ReceivedNotification: Identifiable {
     let id: String
     let app: String
+    let bundleID: String
     let title: String?
     let subtitle: String?
     let date: Date
@@ -109,6 +110,10 @@ final class MacLink: NSObject, ObservableObject, CBCentralManagerDelegate, CBPer
         codeError = nil
         pairingStep = .confirming
         write(.phoneConfirm(proof: PairingCrypto.proof("phone", key: key), phoneName: UIDevice.current.name))
+    }
+
+    func clearHistory() {
+        history = []
     }
 
     func unpair() {
@@ -248,7 +253,7 @@ final class MacLink: NSObject, ObservableObject, CBCentralManagerDelegate, CBPer
         guard n.date > Date().addingTimeInterval(-Wire.replayWindow) else { return dbg("Event \(n.id) too old; dropped") }
         guard markSeen(n.id) else { return dbg("Event \(n.id) already shown; dropped") }
         dbg("Event \(n.id) from \(n.app): showing notification")
-        history.insert(ReceivedNotification(id: n.id, app: n.app, title: n.title, subtitle: n.subtitle, date: n.date),
+        history.insert(ReceivedNotification(id: n.id, app: n.app, bundleID: n.bundleID, title: n.title, subtitle: n.subtitle, date: n.date),
                        at: 0)
         if history.count > 100 { history.removeLast() }
 

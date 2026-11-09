@@ -49,6 +49,7 @@ public final class Engine {
     public struct Forwarded: Identifiable, Equatable {
         public let id: String
         public let app: String
+        public let bundleID: String
         public let title: String?
         public let subtitle: String?
         public let date: Date
@@ -268,7 +269,8 @@ public final class Engine {
             log("\(describe) (not sent: no iPhone paired)")
             delivery = .notPaired
         }
-        forwarded.insert(Forwarded(id: notification.id, app: notification.app, title: notification.title,
+        forwarded.insert(Forwarded(id: notification.id, app: notification.app, bundleID: notification.bundleID,
+                                   title: notification.title,
                                    subtitle: notification.subtitle, date: notification.date, delivery: delivery), at: 0)
         if forwarded.count > maxForwarded { forwarded.removeLast(forwarded.count - maxForwarded) }
         changed()
@@ -290,7 +292,7 @@ public final class Engine {
         let ids = Set(recent.map(\.id))
         forwarded = forwarded.map {
             $0.delivery == .queued && ids.contains($0.id)
-                ? Forwarded(id: $0.id, app: $0.app, title: $0.title, subtitle: $0.subtitle, date: $0.date,
+                ? Forwarded(id: $0.id, app: $0.app, bundleID: $0.bundleID, title: $0.title, subtitle: $0.subtitle, date: $0.date,
                             delivery: .sent) : $0
         }
         changed()

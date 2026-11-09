@@ -14,14 +14,24 @@ struct BlePingMacApp: App {
         .menuBarExtraStyle(.window)
 
         Window("bleping Settings", id: "settings") {
-            SettingsView(model: model)
+            SettingsView(model: model, engine: model.engine)
         }
         .windowResizability(.contentSize)
 
-        Window("bleping log", id: "log") {
+        Window("bleping Log", id: "log") {
             LogView(model: model)
         }
         .defaultSize(width: 640, height: 420)
+    }
+}
+
+/// Opens one of the app's windows and brings it to the front (the app has no Dock icon).
+struct WindowOpener {
+    let openWindow: OpenWindowAction
+
+    func callAsFunction(_ id: String) {
+        openWindow(id: id)
+        NSApp.activate(ignoringOtherApps: true)
     }
 }
 
@@ -31,62 +41,27 @@ struct MenuPanel: View {
     @ObservedObject var model: AppModel
     let engine: Engine
     @Environment(\.openWindow) private var openWindow
-    @State private var confirmUnpair = false
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 12) {
-            header
+        VStack(alignment: .leading, spacing: 0) {
+            StatusHeader(model: model, engine: engine)
+                .padding(14)
             Divider()
-            if let pairing = engine.pairing {
-                PairingBox(pairing: pairing, engine: engine)
-            } else {
-                problems
-                RecentList(items: engine.forwarded)
-            }
-            Divider()
-            footer
-        }
-        .padding(14)
-        .frame(width: 320)
-    }
-
-    private var header: some View {
-        HStack(spacing: 10) {
-            Image(systemName: "iphone.radiowaves.left.and.right")
-                .font(.title2)
-                .foregroundStyle(statusColor)
-            VStack(alignment: .leading, spacing: 2) {
-                Text(statusTitle).font(.headline)
-                if let detail = statusDetail {
-                    Text(detail).font(.caption).foregroundStyle(.secondary)
+            VStack(alignment: .leading, spacing: 12) {
+                if let pairing = engine.pairing {
+                    PairingBox(pairing: pairing, engine: engine)
+                } else {
+                    problems
+                    RecentList(items: engine.forwarded)
                 }
             }
-            Spacer()
+            .padding(14)
+            Divider()
+            footer
+                .padding(.horizontal, 14)
+                .padding(.vertical, 10)
         }
-    }
-
-    private var statusColor: Color {
-        switch model.health {
-        case .good: return .green
-        case .waiting: return .orange
-        case .problem: return .red
-        }
-    }
-
-    private var statusTitle: String {
-        if let problem = model.bluetoothProblem { return problem }
-        if engine.bluetooth == .starting { return "Starting Bluetooth…" }
-        if engine.pairing != nil { return "Pairing" }
-        guard let phone = engine.phone else { return "No iPhone paired" }
-        return engine.phoneConnected ? "Connected to \(phone.name)" : "Waiting for \(phone.name)"
-    }
-
-    private var statusDetail: String? {
-        if model.bluetoothProblem != nil || engine.pairing != nil { return nil }
-        guard engine.phone != nil else { return "Pair your iPhone to start." }
-        return engine.phoneConnected
-            ? "Notifications go to your iPhone"
-            : "Open bleping on your iPhone. Missed notifications arrive when it reconnects."
+        .frame(width: 340)
     }
 
     @ViewBuilder private var problems: some View {
@@ -103,38 +78,97 @@ struct MenuPanel: View {
     }
 
     private var footer: some View {
-        VStack(alignment: .leading, spacing: 8) {
-            HStack {
-                if engine.phone == nil {
-                    if engine.pairing == nil { Button("Pair iPhone…") { engine.startPairing() } }
-                } else {
-                    Button("Send Test") { engine.sendTest() }
-                    Menu("iPhone") {
-                        Button("Pair a Different iPhone…") { engine.startPairing() }
-                        Button("Unpair \(engine.phone?.name ?? "iPhone")…") { confirmUnpair = true }
-                    }
-                    .fixedSize()
+        let open = WindowOpener(openWindow: openWindow)
+        return HStack(spacing: 8) {
+            if engine.phone == nil {
+                if engine.pairing == nil {
+                    Button("Pair iPhone…") { engine.startPairing() }
+                        .buttonStyle(.borderedProminent)
                 }
-                Spacer()
-                Button {
-                    openWindow(id: "log")
-                    NSApp.activate(ignoringOtherApps: true)
-                } label: { Image(systemName: "doc.text.magnifyingglass") }
-                    .help("Show log")
-                Button {
-                    openWindow(id: "settings")
-                    NSApp.activate(ignoringOtherApps: true)
-                } label: { Image(systemName: "gearshape") }
-                    .help("Settings")
-                Button("Quit") { NSApp.terminate(nil) }
+            } else if engine.pairing == nil {
+                Button("Send Test") { engine.sendTest() }
             }
+            Spacer()
+            if model.showLog {
+                FooterIcon(symbol: "doc.text.magnifyingglass", help: "Show Log") { open("log") }
+            }
+            FooterIcon(symbol: "gearshape", help: "Settings") { open("settings") }
+            FooterIcon(symbol: "power", help: "Quit bleping") { NSApp.terminate(nil) }
         }
         .controlSize(.small)
-        .confirmationDialog("Unpair \(engine.phone?.name ?? "iPhone")?", isPresented: $confirmUnpair) {
-            Button("Unpair", role: .destructive) { engine.unpair() }
-        } message: {
-            Text("Notifications stop until you pair again. Also tap Unpair in the iPhone app.")
+    }
+}
+
+struct FooterIcon: View {
+    let symbol: String
+    let help: String
+    let action: () -> Void
+
+    var body: some View {
+        Button(action: action) {
+            Image(systemName: symbol)
+                .frame(width: 22, height: 22)
+                .contentShape(Rectangle())
         }
+        .buttonStyle(.borderless)
+        .help(help)
+    }
+}
+
+struct StatusHeader: View {
+    @ObservedObject var model: AppModel
+    let engine: Engine
+
+    var body: some View {
+        HStack(spacing: 12) {
+            Image(systemName: symbol)
+                .font(.system(size: 18, weight: .semibold))
+                .foregroundStyle(.white)
+                .frame(width: 36, height: 36)
+                .background(color.gradient, in: Circle())
+            VStack(alignment: .leading, spacing: 2) {
+                Text(title).font(.headline)
+                if let detail {
+                    Text(detail)
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+            }
+            Spacer(minLength: 0)
+        }
+    }
+
+    private var color: Color {
+        switch model.health {
+        case .good: return .green
+        case .waiting: return .orange
+        case .problem: return .red
+        }
+    }
+
+    private var symbol: String {
+        if model.bluetoothProblem != nil { return "exclamationmark" }
+        if engine.pairing != nil { return "link" }
+        if engine.phone == nil { return "iphone.slash" }
+        return engine.phoneConnected ? "iphone.radiowaves.left.and.right" : "iphone"
+    }
+
+    private var title: String {
+        if let problem = model.bluetoothProblem { return problem }
+        if engine.bluetooth == .starting { return "Starting Bluetooth…" }
+        if engine.pairing != nil { return "Pairing with your iPhone" }
+        guard let phone = engine.phone else { return "No iPhone paired" }
+        return engine.phoneConnected ? "Connected to \(phone.name)" : "Waiting for \(phone.name)"
+    }
+
+    private var detail: String? {
+        if model.bluetoothProblem != nil || engine.pairing != nil { return nil }
+        guard engine.phone != nil else { return "Pair your iPhone to start." }
+        if engine.phoneConnected { return "Notifications go to your iPhone." }
+        return model.catchUp
+            ? "Open bleping on your iPhone. Missed notifications arrive when it reconnects."
+            : "Open bleping on your iPhone."
     }
 }
 
@@ -177,15 +211,23 @@ struct RecentList: View {
     let items: [Engine.Forwarded]
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 6) {
-            Text("Recent").font(.caption).foregroundStyle(.secondary)
+        VStack(alignment: .leading, spacing: 8) {
+            Text("Recent").font(.caption.weight(.semibold)).foregroundStyle(.secondary)
             if items.isEmpty {
-                Text("Nothing yet. New Mac notifications show up here.")
-                    .font(.callout).foregroundStyle(.secondary)
+                HStack {
+                    Spacer()
+                    VStack(spacing: 6) {
+                        Image(systemName: "bell").font(.title2).foregroundStyle(.tertiary)
+                        Text("New Mac notifications show up here.")
+                            .font(.callout).foregroundStyle(.secondary)
+                    }
+                    Spacer()
+                }
+                .padding(.vertical, 12)
             } else {
                 TimelineView(.periodic(from: .now, by: 30)) { context in
-                    VStack(alignment: .leading, spacing: 6) {
-                        ForEach(items.prefix(8)) { ForwardedRow(item: $0, now: context.date) }
+                    VStack(alignment: .leading, spacing: 10) {
+                        ForEach(items.prefix(6)) { ForwardedRow(item: $0, now: context.date) }
                     }
                 }
             }
@@ -198,24 +240,34 @@ struct ForwardedRow: View {
     let now: Date
 
     var body: some View {
-        HStack(alignment: .firstTextBaseline, spacing: 8) {
-            Image(systemName: symbol).foregroundStyle(color).help(help)
+        HStack(alignment: .top, spacing: 10) {
+            AppIcon(bundleID: item.bundleID)
+                .frame(width: 28, height: 28)
             VStack(alignment: .leading, spacing: 1) {
-                Text(item.app).font(.callout.weight(.medium))
-                if let text = [item.title, item.subtitle].compactMap({ $0 }).joined(separator: " · ").nilIfEmpty {
-                    Text(text).font(.caption).foregroundStyle(.secondary).lineLimit(1)
+                HStack(alignment: .firstTextBaseline) {
+                    Text(item.app).font(.caption).foregroundStyle(.secondary)
+                    Spacer()
+                    Text(now.timeIntervalSince(item.date) < 60 ? "now" : item.date.formatted(.relative(presentation: .numeric)))
+                        .font(.caption2).foregroundStyle(.tertiary)
+                    Image(systemName: symbol)
+                        .font(.caption2)
+                        .foregroundStyle(color)
+                        .help(help)
+                }
+                Text(item.title ?? item.subtitle ?? "Notification")
+                    .font(.callout.weight(.medium))
+                    .lineLimit(1)
+                if item.title != nil, let subtitle = item.subtitle {
+                    Text(subtitle).font(.caption).foregroundStyle(.secondary).lineLimit(1)
                 }
             }
-            Spacer()
-            Text(now.timeIntervalSince(item.date) < 60 ? "now" : item.date.formatted(.relative(presentation: .numeric)))
-                .font(.caption2).foregroundStyle(.tertiary)
         }
     }
 
     private var symbol: String {
         switch item.delivery {
         case .sent: return "checkmark.circle.fill"
-        case .queued: return "clock"
+        case .queued: return "clock.fill"
         case .skipped: return "xmark.circle"
         case .notPaired: return "minus.circle"
         }
@@ -225,8 +277,7 @@ struct ForwardedRow: View {
         switch item.delivery {
         case .sent: return .green
         case .queued: return .orange
-        case .skipped: return .secondary
-        case .notPaired: return .secondary
+        case .skipped, .notPaired: return .secondary
         }
     }
 
@@ -237,6 +288,33 @@ struct ForwardedRow: View {
         case .skipped: return "Not sent: your iPhone wasn't connected (catching up is off)"
         case .notPaired: return "Not sent: no iPhone paired"
         }
+    }
+}
+
+/// The icon of the app that posted the notification (bleping's own for test notifications).
+struct AppIcon: View {
+    let bundleID: String
+
+    var body: some View {
+        Image(nsImage: Self.icon(for: bundleID))
+            .resizable()
+            .interpolation(.high)
+    }
+
+    private static var cache: [String: NSImage] = [:]
+
+    static func icon(for bundleID: String) -> NSImage {
+        if let cached = cache[bundleID] { return cached }
+        let image: NSImage
+        if bundleID.hasPrefix("dev.bleping.") {
+            image = NSApp.applicationIconImage
+        } else if let url = NSWorkspace.shared.urlForApplication(withBundleIdentifier: bundleID) {
+            image = NSWorkspace.shared.icon(forFile: url.path)
+        } else {
+            image = NSImage(systemSymbolName: "app.dashed", accessibilityDescription: nil) ?? NSImage()
+        }
+        cache[bundleID] = image
+        return image
     }
 }
 
@@ -276,22 +354,51 @@ struct Notice: View {
 
 struct SettingsView: View {
     @ObservedObject var model: AppModel
+    let engine: Engine
+    @Environment(\.openWindow) private var openWindow
+    @State private var confirmUnpair = false
 
     var body: some View {
         Form {
-            Section {
+            Section("iPhone") {
+                if let phone = engine.phone {
+                    LabeledContent("Paired with", value: phone.name)
+                    LabeledContent("Since", value: phone.pairedAt.formatted(date: .abbreviated, time: .shortened))
+                    HStack {
+                        Button("Pair a Different iPhone…") { engine.startPairing() }
+                        Spacer()
+                        Button("Unpair…", role: .destructive) { confirmUnpair = true }
+                    }
+                } else {
+                    LabeledContent("Paired with", value: "Nobody yet")
+                    Button("Pair iPhone…") { engine.startPairing() }
+                }
+            }
+            Section("Notifications") {
                 Toggle(isOn: $model.catchUp) {
                     Text("Send missed notifications")
                     Text("When your iPhone reconnects, send it the notifications from the last hour it missed. When off, notifications that arrive while it's away are skipped.")
                 }
             }
-            Section {
+            Section("General") {
                 Toggle("Open at Login", isOn: Binding(get: { model.openAtLogin }, set: { model.setOpenAtLogin($0) }))
+            }
+            Section("Troubleshooting") {
+                Toggle(isOn: $model.showLog) {
+                    Text("Show log button")
+                    Text("Adds a button to the menu bar panel that opens bleping's log.")
+                }
+                Button("Open Log") { WindowOpener(openWindow: openWindow)("log") }
             }
         }
         .formStyle(.grouped)
-        .frame(width: 420)
+        .frame(width: 440)
         .fixedSize()
+        .confirmationDialog("Unpair \(engine.phone?.name ?? "iPhone")?", isPresented: $confirmUnpair) {
+            Button("Unpair", role: .destructive) { engine.unpair() }
+        } message: {
+            Text("Notifications stop until you pair again. Also tap Unpair in the iPhone app.")
+        }
     }
 }
 
@@ -314,8 +421,4 @@ struct LogView: View {
             .onAppear { proxy.scrollTo("end") }
         }
     }
-}
-
-extension String {
-    var nilIfEmpty: String? { isEmpty ? nil : self }
 }
