@@ -358,7 +358,10 @@ struct SettingsView: View {
     var body: some View {
         Form {
             Section("iPhone") {
-                if let phone = engine.phone {
+                if let pairing = engine.pairing {
+                    // The menu bar panel closes while this window is in front, so show pairing here too.
+                    PairingBox(pairing: pairing, engine: engine)
+                } else if let phone = engine.phone {
                     LabeledContent("Paired with", value: phone.name)
                     LabeledContent("Since", value: phone.pairedAt.formatted(date: .abbreviated, time: .shortened))
                     HStack {

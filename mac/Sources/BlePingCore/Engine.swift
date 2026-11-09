@@ -146,6 +146,11 @@ public final class Engine {
     // MARK: Pairing
 
     public func startPairing() {
+        // An iPhone is already exchanging keys or showing the code: don't throw that away.
+        switch pairing {
+        case .exchanging?, .code?: return
+        default: break
+        }
         let session = PairingSession(peripheral: peripheral) { [weak self] phone in
             guard let self else { return }
             use(phone)
