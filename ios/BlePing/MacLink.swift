@@ -7,6 +7,7 @@ struct ReceivedNotification: Identifiable {
     let id: String
     let app: String
     let title: String?
+    let subtitle: String?
     let date: Date
 }
 
@@ -236,18 +237,40 @@ final class MacLink: NSObject, ObservableObject, CBCentralManagerDelegate, CBPer
     // MARK: Notifications
 
     private func receive(_ sealed: Data) {
-        guard let paired, let n = try? EventCrypto.open(sealed, key: paired.eventKey) else { return }
+        guard let paired else { return dbg("Event ignored: not paired") }
+        let n: MacNotification
+        do {
+            n = try EventCrypto.open(sealed, key: paired.eventKey)
+        } catch {
+            return dbg("Event could not be decrypted (\(sealed.count) bytes): \(error)")
+        }
         // Drop repeats (the Mac resends recent ones on reconnect) and anything stale.
-        guard n.date > Date().addingTimeInterval(-Wire.replayWindow), markSeen(n.id) else { return }
-        history.insert(ReceivedNotification(id: n.id, app: n.app, title: n.title, date: n.date), at: 0)
+        guard n.date > Date().addingTimeInterval(-Wire.replayWindow) else { return dbg("Event \(n.id) too old; dropped") }
+        guard markSeen(n.id) else { return dbg("Event \(n.id) already shown; dropped") }
+        dbg("Event \(n.id) from \(n.app): showing notification")
+        history.insert(ReceivedNotification(id: n.id, app: n.app, title: n.title, subtitle: n.subtitle, date: n.date),
+                       at: 0)
         if history.count > 100 { history.removeLast() }
 
         let content = UNMutableNotificationContent()
+        // Shown as:  Mail
+        //            Ana García          (title)
+        //            Dinner on Friday    (subtitle)
         content.title = n.app
-        content.body = n.title ?? "New notification on your Mac"
+        switch (n.title, n.subtitle) {
+        case let (title?, subtitle?):
+            content.subtitle = title
+            content.body = subtitle
+        case let (title?, nil), let (nil, title?):
+            content.body = title
+        case (nil, nil):
+            content.body = "New notification on your Mac"
+        }
         content.sound = .default
         content.threadIdentifier = n.bundleID
-        UNUserNotificationCenter.current().add(UNNotificationRequest(identifier: n.id, content: content, trigger: nil))
+        UNUserNotificationCenter.current().add(UNNotificationRequest(identifier: n.id, content: content, trigger: nil)) { [weak self] error in
+            if let error { DispatchQueue.main.async { self?.dbg("Could not post notification: \(error.localizedDescription)") } }
+        }
     }
 
     /// Records a notification ID; false if it was already seen. Persisted, so a relaunch
@@ -349,6 +372,7 @@ final class MacLink: NSObject, ObservableObject, CBCentralManagerDelegate, CBPer
             write(.hello(phoneKey: exchange.phoneKey))
         } else if c.uuid == Wire.eventsUUID, c.isNotifying {
             connected = true
+            write(.catchUp)   // get whatever arrived while we were away or restarting
         }
     }
 
@@ -369,6 +393,7 @@ final class MacLink: NSObject, ObservableObject, CBCentralManagerDelegate, CBPer
         case Wire.pairingUUID:
             handlePairing(PairMessage(value), from: p)
         case Wire.eventsUUID:
+            dbg("Event chunk: \(value.count) bytes")
             if let whole = reassembler.add(value) { receive(whole) }
         default:
             break

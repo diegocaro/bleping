@@ -1,5 +1,6 @@
 import AppKit
 import BlePingCore
+import OSLog
 import ServiceManagement
 import SwiftUI
 
@@ -28,7 +29,11 @@ final class AppModel: ObservableObject {
         if engine.phone == nil { engine.startPairing() }
     }
 
+    private static let logger = Logger(subsystem: "dev.bleping.macapp", category: "engine")
+
     private func appendLog(_ line: String) {
+        // Also to the system log:  log stream --predicate 'subsystem == "dev.bleping.macapp"'
+        Self.logger.notice("\(line, privacy: .public)")
         logLines.append("\(Self.clock.string(from: Date()))  \(line)")
         if logLines.count > 500 { logLines.removeFirst(logLines.count - 500) }
     }

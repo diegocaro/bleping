@@ -197,8 +197,8 @@ struct ForwardedRow: View {
             Image(systemName: symbol).foregroundStyle(color).help(help)
             VStack(alignment: .leading, spacing: 1) {
                 Text(item.app).font(.callout.weight(.medium))
-                if let title = item.title {
-                    Text(title).font(.caption).foregroundStyle(.secondary).lineLimit(1)
+                if let text = [item.title, item.subtitle].compactMap({ $0 }).joined(separator: " · ").nilIfEmpty {
+                    Text(text).font(.caption).foregroundStyle(.secondary).lineLimit(1)
                 }
             }
             Spacer()
@@ -283,4 +283,8 @@ struct LogView: View {
             .onAppear { proxy.scrollTo("end") }
         }
     }
+}
+
+extension String {
+    var nilIfEmpty: String? { isEmpty ? nil : self }
 }

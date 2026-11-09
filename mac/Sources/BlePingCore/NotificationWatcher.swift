@@ -12,6 +12,10 @@ final class NotificationWatcher {
         let bundleID: String
         /// The notification's title (often the sender), if it had one.
         let title: String?
+        /// The subtitle (a group chat, a mail subject…), if it had one.
+        let subtitle: String?
+        /// When macOS delivered it.
+        let date: Date
     }
 
     enum WatchError: Error, CustomStringConvertible {
@@ -94,7 +98,7 @@ final class NotificationWatcher {
 
     private func fetchNew() throws -> [Delivered] {
         let sql = """
-            SELECT r.rec_id, COALESCE(a.identifier, ''), r.data
+            SELECT r.rec_id, COALESCE(a.identifier, ''), r.data, r.delivered_date
             FROM record r LEFT JOIN app a ON a.app_id = r.app_id
             WHERE r.rec_id > ?
             ORDER BY r.rec_id
@@ -117,23 +121,28 @@ final class NotificationWatcher {
             if let bytes = sqlite3_column_blob(stmt, 2) {
                 blob = Data(bytes: bytes, count: Int(sqlite3_column_bytes(stmt, 2)))
             }
-            result.append(Delivered(recordID: id, bundleID: bundle, title: blob.flatMap(Self.title(fromRecord:))))
+            let text: (title: String?, subtitle: String?) = blob.map(Self.text(fromRecord:)) ?? (nil, nil)
+            // delivered_date counts seconds from 2001 (Core Data style); NULL if not delivered yet.
+            let delivered = sqlite3_column_type(stmt, 3) == SQLITE_NULL
+                ? Date() : Date(timeIntervalSinceReferenceDate: sqlite3_column_double(stmt, 3))
+            result.append(Delivered(recordID: id, bundleID: bundle, title: text.title, subtitle: text.subtitle,
+                                    date: delivered))
             lastRecordID = max(lastRecordID, id)
         }
         return result
     }
 
     /// `record.data` is a binary plist; the visible text sits under "req":
-    /// "titl" (title), "subt" (subtitle), "body". Only the title is used, falling back
-    /// to the subtitle; the body is never read.
-    static func title(fromRecord data: Data) -> String? {
+    /// "titl" (title), "subt" (subtitle), "body". The body is never read.
+    /// Some apps store a localization key array instead of text; those are skipped.
+    static func text(fromRecord data: Data) -> (title: String?, subtitle: String?) {
         guard let plist = try? PropertyListSerialization.propertyList(from: data, format: nil) as? [String: Any],
-              let request = plist["req"] as? [String: Any] else { return nil }
-        for key in ["titl", "subt"] {
-            if let text = (request[key] as? String)?.trimmingCharacters(in: .whitespacesAndNewlines), !text.isEmpty {
-                return text
-            }
+              let request = plist["req"] as? [String: Any] else { return (nil, nil) }
+        func field(_ key: String) -> String? {
+            guard let text = (request[key] as? String)?.trimmingCharacters(in: .whitespacesAndNewlines),
+                  !text.isEmpty else { return nil }
+            return text
         }
-        return nil
+        return (field("titl"), field("subt"))
     }
 }

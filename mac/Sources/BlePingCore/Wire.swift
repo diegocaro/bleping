@@ -48,6 +48,10 @@ enum PairMessage: Equatable {
     case macConfirm(proof: Data, pairingID: Data, macName: String)
     /// Either way: pairing stopped. The text is shown to the user.
     case failed(String)
+    /// iPhone → Mac, once paired and subscribed to events: "resend the recent notifications".
+    /// The iPhone sends this on every connect, because iOS can keep the subscription alive
+    /// while the app restarts, so the Mac can't tell the app missed anything.
+    case catchUp
 
     static let keyLength = 65, nonceLength = 16, proofLength = 32, pairingIDLength = 16
 
@@ -60,6 +64,7 @@ enum PairMessage: Equatable {
         case .phoneConfirm(let proof, let name): return Data([0x05]) + proof + Self.text(name)
         case .macConfirm(let proof, let id, let name): return Data([0x06]) + proof + id + Self.text(name)
         case .failed(let reason): return Data([0x7F]) + Self.text(reason, limit: 120)
+        case .catchUp: return Data([0x10])
         }
     }
 
@@ -92,6 +97,8 @@ enum PairMessage: Equatable {
             self = .macConfirm(proof: proof, pairingID: id, macName: rest(p + i))
         case 0x7F:
             self = .failed(rest(0))
+        case 0x10:
+            self = .catchUp
         default:
             return nil
         }
@@ -157,6 +164,10 @@ struct MacNotification: Codable, Equatable {
     let bundleID: String
     /// Notification title (e.g. the sender), if it had one. Never the body text.
     let title: String?
+    /// Subtitle (e.g. a group chat or mail subject), if it had one. Optional on the wire, so
+    /// older builds that don't send it still decode.
+    var subtitle: String? = nil
+    /// When macOS delivered it.
     let date: Date
 }
 

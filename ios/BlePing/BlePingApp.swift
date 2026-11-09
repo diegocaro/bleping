@@ -188,8 +188,11 @@ struct NotificationRow: View {
                     .font(.caption)
                     .foregroundStyle(.secondary)
             }
-            Text(notification.title ?? "New notification")
-                .foregroundStyle(notification.title == nil ? .secondary : .primary)
+            Text(notification.title ?? notification.subtitle ?? "New notification")
+                .foregroundStyle(notification.title == nil && notification.subtitle == nil ? .secondary : .primary)
+            if notification.title != nil, let subtitle = notification.subtitle {
+                Text(subtitle).font(.subheadline).foregroundStyle(.secondary)
+            }
         }
         .padding(.vertical, 2)
     }

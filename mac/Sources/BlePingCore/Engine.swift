@@ -45,6 +45,7 @@ public final class Engine {
         public let id: String
         public let app: String
         public let title: String?
+        public let subtitle: String?
         public let date: Date
         public let delivery: Delivery
     }
@@ -122,13 +123,14 @@ public final class Engine {
         peripheral.onSubscribersChanged = { [weak self] in self?.changed() }
         peripheral.onPairingMessage = { [weak self] data, central in
             guard let self else { return }
-            if let session {
+            if case .catchUp? = PairMessage(data) {
+                replay(to: central)
+            } else if let session {
                 session.handle(data, from: central)
             } else if case .hello? = PairMessage(data) {
                 peripheral.sendPairing(.failed("This Mac isn't in pairing mode. Run `bleping pair` on it."), to: central)
             }
         }
-        peripheral.onEventsSubscribed = { [weak self] central in self?.replay(to: central) }
 
         startWatching()
     }
@@ -221,7 +223,7 @@ public final class Engine {
             where (options.only.isEmpty || options.only.contains(n.bundleID)) && !options.ignore.contains(n.bundleID) {
                 send(MacNotification(id: "n\(n.recordID)", app: appName(for: n.bundleID) ?? n.bundleID,
                                      bundleID: n.bundleID, title: n.title.map { String($0.prefix(120)) },
-                                     date: Date()))
+                                     subtitle: n.subtitle.map { String($0.prefix(120)) }, date: n.date))
             }
         } catch {
             log("\(error)")
@@ -231,7 +233,8 @@ public final class Engine {
     private func send(_ notification: MacNotification) {
         recent.append(notification)
         prune()
-        let describe = "\(notification.app)\(notification.title.map { ": \"\($0)\"" } ?? "")"
+        let text = [notification.title, notification.subtitle].compactMap { $0 }.map { "\"\($0)\"" }
+        let describe = notification.app + (text.isEmpty ? "" : ": " + text.joined(separator: " · "))
         let delivery: Delivery
         if let eventKey {
             if peripheral.connectedPhones > 0 {
@@ -252,12 +255,13 @@ public final class Engine {
             delivery = .notPaired
         }
         forwarded.insert(Forwarded(id: notification.id, app: notification.app, title: notification.title,
-                                   date: notification.date, delivery: delivery), at: 0)
+                                   subtitle: notification.subtitle, date: notification.date, delivery: delivery), at: 0)
         if forwarded.count > maxForwarded { forwarded.removeLast(forwarded.count - maxForwarded) }
         changed()
     }
 
-    /// Sends the recent notifications to an iPhone that just connected. It drops the ones it already has.
+    /// Sends the recent notifications to an iPhone that asked to catch up after connecting.
+    /// It drops the ones it already has.
     private func replay(to central: CBCentral) {
         prune()
         guard let eventKey, !recent.isEmpty else { return }
@@ -271,7 +275,8 @@ public final class Engine {
         let ids = Set(recent.map(\.id))
         forwarded = forwarded.map {
             $0.delivery == .queued && ids.contains($0.id)
-                ? Forwarded(id: $0.id, app: $0.app, title: $0.title, date: $0.date, delivery: .sent) : $0
+                ? Forwarded(id: $0.id, app: $0.app, title: $0.title, subtitle: $0.subtitle, date: $0.date,
+                            delivery: .sent) : $0
         }
         changed()
     }
