@@ -96,7 +96,7 @@ public final class Engine {
     /// Ends pairing mode if nothing paired in time, so the Mac doesn't keep listening for any phone.
     private var pairingDeadline: DispatchWorkItem?
     /// How long pairing mode stays open.
-    public static let pairingModeDuration: TimeInterval = 5 * 60
+    public static let pairingModeDuration: TimeInterval = 3 * 60   // as Bluetooth's limited discoverable mode
     /// The nonce sent to each iPhone that's partway through the reconnect check.
     private var challenges: [UUID: Data] = [:]
     private var watcher: NotificationWatcher?
