@@ -130,38 +130,28 @@ struct StatusHeader: View {
     let engine: Engine
 
     var body: some View {
-        HStack(spacing: 12) {
-            Image(systemName: symbol)
-                .font(.system(size: 18, weight: .semibold))
-                .foregroundStyle(.white)
-                .frame(width: 36, height: 36)
-                .background(color.gradient, in: Circle())
-            VStack(alignment: .leading, spacing: 2) {
-                Text(title).font(.headline)
-                if let detail {
-                    Text(detail)
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-                        .fixedSize(horizontal: false, vertical: true)
-                }
+        // The same slim status line as the iPhone app.
+        VStack(alignment: .leading, spacing: 3) {
+            LinkStateLabel(title, state: state, tintsTitle: false)
+                .font(.headline)
+            if let detail {
+                Text(detail)
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+                    // Line up with the title, past the symbol.
+                    .padding(.leading, 26)
             }
-            Spacer(minLength: 0)
         }
+        .frame(maxWidth: .infinity, alignment: .leading)
     }
 
-    private var color: Color {
-        switch model.health {
-        case .good: return .green
-        case .waiting: return .orange
-        case .problem: return .red
-        }
-    }
-
-    private var symbol: String {
-        if model.bluetoothProblem != nil { return "exclamationmark" }
-        if engine.pairing != nil { return "link" }
-        if engine.phone == nil { return "iphone.slash" }
-        return engine.phoneConnected ? "iphone.radiowaves.left.and.right" : "iphone"
+    private var state: LinkState {
+        if model.bluetoothProblem != nil { return .problem }
+        if engine.bluetooth == .starting { return .searching }
+        if engine.pairing != nil { return .pairing }
+        if engine.phone == nil { return .notPaired }
+        return engine.phoneConnected ? .connected : .searching
     }
 
     private var title: String {

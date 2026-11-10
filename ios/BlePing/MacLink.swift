@@ -35,6 +35,10 @@ final class MacLink: NSObject, ObservableObject, CBCentralManagerDelegate, CBPer
     /// Why Bluetooth can't be used, or nil when it's on.
     /// Why Bluetooth can't be used, or nil when it's on (or not started yet).
     @Published private(set) var bluetoothProblem: String?
+    /// Bluetooth is still coming up (not a real problem yet).
+    var bluetoothStarting: Bool {
+        bluetoothProblem == "Starting Bluetooth…" || bluetoothProblem == "Waiting for Bluetooth…"
+    }
     /// The user said no to Bluetooth; the fix is in Settings.
     @Published private(set) var bluetoothDenied = false
     @Published private(set) var connected = false

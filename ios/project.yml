@@ -12,6 +12,8 @@ targets:
       - BlePing
       # Wire format and crypto, shared with the Mac tool (one copy, so they can't drift).
       - path: ../mac/Sources/BlePingCore/Wire.swift
+      # How the connection state looks, shared with the Mac app.
+      - path: ../mac/Sources/BlePingCore/LinkState.swift
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: dev.bleping.phone

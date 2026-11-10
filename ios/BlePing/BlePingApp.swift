@@ -158,21 +158,18 @@ struct StatusCard: View {
 
     var body: some View {
         if let problem = link.bluetoothProblem {
-            Label(problem, systemImage: "exclamationmark.triangle.fill")
-                .foregroundStyle(.red)
+            LinkStateLabel(problem, state: link.bluetoothStarting ? .searching : .problem)
             if link.bluetoothDenied {
                 Button("Open Settings") { openSettingsApp() }
             }
         } else if let mac = link.paired {
             if link.connected {
-                Label("Connected to \(mac.macName)", systemImage: "checkmark.circle.fill")
-                    .foregroundStyle(.green)
+                LinkStateLabel("Connected to \(mac.macName)", state: .connected)
             } else {
-                Label("Looking for \(mac.macName)…", systemImage: "antenna.radiowaves.left.and.right")
-                    .foregroundStyle(.orange)
+                LinkStateLabel("Looking for \(mac.macName)…", state: .searching)
             }
         } else {
-            Label("Not paired", systemImage: "link.badge.plus")
+            LinkStateLabel("Not paired", state: .notPaired)
             Button("Pair with Mac") { link.startPairing() }
                 .font(.headline)
         }
