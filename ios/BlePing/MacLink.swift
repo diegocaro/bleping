@@ -21,6 +21,8 @@ enum PairingStep: Equatable {
     case enterCode
     /// Code matched; waiting for the Mac to confirm.
     case confirming
+    /// Done: paired with the Mac of this name. Shown briefly before the sheet closes.
+    case paired(String)
     case failed(String)
 }
 
@@ -101,6 +103,11 @@ final class MacLink: NSObject, ObservableObject, CBCentralManagerDelegate, CBPer
     }
 
     func cancelPairing() {
+        // Closing the success screen: keep the new connection.
+        if case .paired? = pairingStep {
+            pairingStep = nil
+            return
+        }
         if exchange != nil, pairingStep != .searching { write(.failed("Cancelled on the iPhone")) }
         exchange = nil
         pairingStep = nil
@@ -221,7 +228,11 @@ final class MacLink: NSObject, ObservableObject, CBCentralManagerDelegate, CBPer
             }
             paired = mac
             exchange = nil
-            pairingStep = nil
+            pairingStep = .paired(mac.macName)
+            // Close the success screen by itself after a moment (unless the user already did).
+            DispatchQueue.main.asyncAfter(deadline: .now() + 2.5) { [weak self] in
+                if case .paired? = self?.pairingStep { self?.pairingStep = nil }
+            }
             // Already connected to the right Mac: go straight to receiving notifications.
             if let id = characteristics[Wire.pairingIDUUID] { p.readValue(for: id) }
 

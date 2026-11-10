@@ -84,7 +84,8 @@ struct ContentView: View {
                 if link.paired != nil {
                     Section {
                         if link.history.isEmpty {
-                            EmptyHistory()
+                            ContentUnavailableView("No Notifications Yet", systemImage: "bell",
+                                                   description: Text("New notifications from your Mac show up here."))
                         } else {
                             // Re-render every 30 s so "2 min ago" stays current.
                             TimelineView(.periodic(from: .now, by: 30)) { context in
@@ -122,10 +123,10 @@ struct ContentView: View {
                 // Paired before this version asked in context: ask now if it never happened.
                 if link.paired != nil { await notifications.requestIfNeeded() } else { await notifications.refresh() }
             }
-            .onChange(of: link.paired != nil) { paired in
+            .onChange(of: link.paired != nil) { _, paired in
                 if paired { Task { await notifications.requestIfNeeded() } }
             }
-            .onChange(of: scenePhase) { phase in
+            .onChange(of: scenePhase) { _, phase in
                 if phase == .active { Task { await notifications.refresh() } }
             }
             .sheet(isPresented: Binding(get: { link.pairingStep != nil },
@@ -175,24 +176,6 @@ struct NotificationsOffRow: View {
                 .font(.subheadline)
         }
         .padding(.vertical, 2)
-    }
-}
-
-struct EmptyHistory: View {
-    var body: some View {
-        VStack(spacing: 8) {
-            Image(systemName: "bell")
-                .font(.largeTitle)
-                .foregroundStyle(.tertiary)
-            Text("No notifications yet")
-                .font(.headline)
-            Text("New notifications from your Mac show up here.")
-                .font(.subheadline)
-                .foregroundStyle(.secondary)
-                .multilineTextAlignment(.center)
-        }
-        .frame(maxWidth: .infinity)
-        .padding(.vertical, 24)
     }
 }
 
@@ -323,6 +306,11 @@ struct SettingsView: View {
 
 struct PairingView: View {
     @ObservedObject var link: MacLink
+
+    private var isPaired: Bool {
+        if case .paired? = link.pairingStep { return true }
+        return false
+    }
     @AppStorage("showBluetoothLog") private var showLog = false
     @State private var code = ""
     @FocusState private var codeFocused: Bool
@@ -364,7 +352,7 @@ struct PairingView: View {
                         .multilineTextAlignment(.center)
                         .focused($codeFocused)
                         .onAppear { codeFocused = true }
-                        .onChange(of: code) { newValue in
+                        .onChange(of: code) { _, newValue in
                             let digits = String(newValue.filter(\.isNumber).prefix(6))
                             if digits != newValue { code = digits }
                             if digits.count == 6 { link.submitCode(digits) }
@@ -372,6 +360,13 @@ struct PairingView: View {
                     if let error = link.codeError {
                         Text(error).foregroundStyle(.red).multilineTextAlignment(.center)
                     }
+                case .paired(let macName)?:
+                    StepIcon(symbol: "checkmark", color: .green)
+                    Text("Paired with \(macName)").font(.title3.weight(.semibold))
+                        .multilineTextAlignment(.center)
+                    Text("Your Mac's notifications will now show up on this iPhone.")
+                        .multilineTextAlignment(.center)
+                        .foregroundStyle(.secondary)
                 case .confirming?:
                     StepIcon(symbol: "checkmark")
                     Text("Pairing…").font(.title3.weight(.semibold))
@@ -399,12 +394,19 @@ struct PairingView: View {
             .navigationTitle("Pair with Mac")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
-                ToolbarItem(placement: .cancellationAction) {
-                    Button("Cancel") { link.cancelPairing() }
+                if isPaired {
+                    ToolbarItem(placement: .confirmationAction) {
+                        Button("Done") { link.cancelPairing() }
+                    }
+                } else {
+                    ToolbarItem(placement: .cancellationAction) {
+                        Button("Cancel") { link.cancelPairing() }
+                    }
                 }
             }
+            .sensoryFeedback(.success, trigger: isPaired) { _, paired in paired }
         }
-        .interactiveDismissDisabled()
+        .interactiveDismissDisabled(!isPaired)
     }
 }
 

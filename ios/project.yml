@@ -3,7 +3,7 @@ name: BlePing
 options:
   bundleIdPrefix: dev.bleping
   deploymentTarget:
-    iOS: "16.0"
+    iOS: "18.0"
 targets:
   BlePing:
     type: application
