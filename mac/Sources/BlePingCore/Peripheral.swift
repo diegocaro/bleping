@@ -73,6 +73,10 @@ final class Peripheral: NSObject, CBPeripheralManagerDelegate {
         service.characteristics = [pairing, events, id]
         pairingChar = pairing
         eventsChar = events
+        // macOS can keep a published service across a Bluetooth off/on. Adding ours again
+        // would leave two copies: the iPhone subscribes to the old one while we send on the new.
+        manager.stopAdvertising()
+        manager.removeAllServices()
         manager.add(service)
     }
 
@@ -153,7 +157,7 @@ final class Peripheral: NSObject, CBPeripheralManagerDelegate {
                            didSubscribeTo characteristic: CBCharacteristic) {
         if characteristic.uuid == Wire.pairingUUID { log("An iPhone connected to pair") }
         if characteristic.uuid == Wire.eventsUUID {
-            log("iPhone connected")
+            log("iPhone connected (\(connectedPhones) subscribed\(characteristic === eventsChar ? "" : ", to an old copy of the service!"))")
             onEventsSubscribed?(central)
             onSubscribersChanged?()
         }
@@ -162,7 +166,7 @@ final class Peripheral: NSObject, CBPeripheralManagerDelegate {
     func peripheralManager(_ peripheral: CBPeripheralManager, central: CBCentral,
                            didUnsubscribeFrom characteristic: CBCharacteristic) {
         if characteristic.uuid == Wire.eventsUUID {
-            log("iPhone disconnected")
+            log("iPhone disconnected (\(connectedPhones) subscribed)")
             onSubscribersChanged?()
         }
         outbox.removeAll { $0.to?.contains(central) == true }
