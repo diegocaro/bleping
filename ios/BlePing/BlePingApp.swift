@@ -15,11 +15,14 @@ struct BlePingApp: App {
 final class AppDelegate: NSObject, UIApplicationDelegate, UNUserNotificationCenterDelegate {
     func application(_ application: UIApplication,
                      didFinishLaunchingWithOptions launchOptions: [UIApplication.LaunchOptionsKey: Any]? = nil) -> Bool {
-        let center = UNUserNotificationCenter.current()
-        center.delegate = self
-        center.requestAuthorization(options: [.alert, .sound]) { _, _ in }
-        // Also runs on a Bluetooth-triggered background relaunch.
-        MacLink.shared.start()
+        // Permissions are asked in context: Bluetooth when the user taps Pair, notifications
+        // right after pairing. Not here.
+        UNUserNotificationCenter.current().delegate = self
+        // Once paired, start Bluetooth at every launch, including iOS relaunching us in the
+        // background for a Bluetooth event (state restoration needs the manager recreated).
+        if MacLink.shared.paired != nil || launchOptions?[.bluetoothCentrals] != nil {
+            MacLink.shared.start()
+        }
         return true
     }
 
@@ -30,18 +33,52 @@ final class AppDelegate: NSObject, UIApplicationDelegate, UNUserNotificationCent
     }
 }
 
+// MARK: - Notification permission
+
+/// Whether bleping may show notifications. Re-checked whenever the app comes to the front,
+/// since the user can change it in Settings at any time.
+@MainActor
+final class NotificationAccess: ObservableObject {
+    static let shared = NotificationAccess()
+    @Published private(set) var status: UNAuthorizationStatus = .notDetermined
+
+    func refresh() async {
+        status = await UNUserNotificationCenter.current().notificationSettings().authorizationStatus
+    }
+
+    /// Shows iOS's prompt if the user hasn't been asked yet. Called once a Mac is paired, when
+    /// it's clear why bleping wants to notify.
+    func requestIfNeeded() async {
+        await refresh()
+        guard status == .notDetermined else { return }
+        _ = try? await UNUserNotificationCenter.current().requestAuthorization(options: [.alert, .sound])
+        await refresh()
+    }
+}
+
+/// Opens bleping's page in the Settings app (or its notification settings).
+func openSettingsApp(notifications: Bool = false) {
+    let string = notifications ? UIApplication.openNotificationSettingsURLString : UIApplication.openSettingsURLString
+    if let url = URL(string: string) { UIApplication.shared.open(url) }
+}
+
 // MARK: - Main screen
 
 struct ContentView: View {
     @ObservedObject var link: MacLink
+    @ObservedObject private var notifications = NotificationAccess.shared
     @AppStorage("showBluetoothLog") private var showLog = false
     @State private var showSettings = false
+    @Environment(\.scenePhase) private var scenePhase
 
     var body: some View {
         NavigationStack {
             List {
                 Section {
                     StatusCard(link: link)
+                    if link.paired != nil, notifications.status == .denied {
+                        NotificationsOffRow()
+                    }
                 }
 
                 if link.paired != nil {
@@ -81,6 +118,16 @@ struct ContentView: View {
             .sheet(isPresented: $showSettings) {
                 SettingsView(link: link)
             }
+            .task {
+                // Paired before this version asked in context: ask now if it never happened.
+                if link.paired != nil { await notifications.requestIfNeeded() } else { await notifications.refresh() }
+            }
+            .onChange(of: link.paired != nil) { paired in
+                if paired { Task { await notifications.requestIfNeeded() } }
+            }
+            .onChange(of: scenePhase) { phase in
+                if phase == .active { Task { await notifications.refresh() } }
+            }
             .sheet(isPresented: Binding(get: { link.pairingStep != nil },
                                         set: { if !$0 { link.cancelPairing() } })) {
                 PairingView(link: link)
@@ -96,6 +143,9 @@ struct StatusCard: View {
         if let problem = link.bluetoothProblem {
             Label(problem, systemImage: "exclamationmark.triangle.fill")
                 .foregroundStyle(.red)
+            if link.bluetoothDenied {
+                Button("Open Settings") { openSettingsApp() }
+            }
         } else if let mac = link.paired {
             if link.connected {
                 Label("Connected to \(mac.macName)", systemImage: "checkmark.circle.fill")
@@ -109,6 +159,22 @@ struct StatusCard: View {
             Button("Pair with Mac") { link.startPairing() }
                 .font(.headline)
         }
+    }
+}
+
+struct NotificationsOffRow: View {
+    var body: some View {
+        VStack(alignment: .leading, spacing: 6) {
+            Label("Notifications are off for bleping", systemImage: "bell.slash.fill")
+                .foregroundStyle(.orange)
+                .font(.subheadline.weight(.semibold))
+            Text("Your Mac's notifications still arrive here, but they can't appear on your Lock Screen or as banners.")
+                .font(.footnote)
+                .foregroundStyle(.secondary)
+            Button("Turn On in Settings") { openSettingsApp(notifications: true) }
+                .font(.subheadline)
+        }
+        .padding(.vertical, 2)
     }
 }
 
@@ -266,6 +332,17 @@ struct PairingView: View {
             VStack(spacing: 20) {
                 Spacer()
                 switch link.pairingStep {
+                case .searching? where link.bluetoothProblem != nil && link.bluetoothProblem != "Starting Bluetooth…":
+                    StepIcon(symbol: "exclamationmark", color: .red)
+                    Text(link.bluetoothProblem ?? "").font(.title3.weight(.semibold))
+                        .multilineTextAlignment(.center)
+                    Text("bleping uses Bluetooth to find your Mac and receive its notifications.")
+                        .multilineTextAlignment(.center)
+                        .foregroundStyle(.secondary)
+                    if link.bluetoothDenied {
+                        Button("Open Settings") { openSettingsApp() }
+                            .buttonStyle(.borderedProminent)
+                    }
                 case .searching?:
                     StepIcon(symbol: "magnifyingglass")
                     Text("Looking for your Mac…").font(.title3.weight(.semibold))

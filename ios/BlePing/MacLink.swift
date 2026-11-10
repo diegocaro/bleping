@@ -31,7 +31,10 @@ final class MacLink: NSObject, ObservableObject, CBCentralManagerDelegate, CBPer
     static let shared = MacLink()
 
     /// Why Bluetooth can't be used, or nil when it's on.
-    @Published private(set) var bluetoothProblem: String? = "Starting Bluetooth…"
+    /// Why Bluetooth can't be used, or nil when it's on (or not started yet).
+    @Published private(set) var bluetoothProblem: String?
+    /// The user said no to Bluetooth; the fix is in Settings.
+    @Published private(set) var bluetoothDenied = false
     @Published private(set) var connected = false
     @Published private(set) var paired: PairedMac? = PairedMacStore.load()
     @Published private(set) var pairingStep: PairingStep?
@@ -72,8 +75,11 @@ final class MacLink: NSObject, ObservableObject, CBCentralManagerDelegate, CBPer
         var phoneKey: Data { phonePrivate.publicKey.x963Representation }
     }
 
+    /// Starts Bluetooth. The first call shows iOS's Bluetooth permission prompt, so it happens
+    /// when the user taps Pair, or at launch once already paired.
     func start() {
         guard central == nil else { return }
+        bluetoothProblem = "Starting Bluetooth…"
         // The restore identifier lets iOS relaunch the app in the background for Bluetooth
         // events after the system has suspended or killed it.
         central = CBCentralManager(delegate: self, queue: nil,
@@ -83,6 +89,7 @@ final class MacLink: NSObject, ObservableObject, CBCentralManagerDelegate, CBPer
     // MARK: Actions from the UI
 
     func startPairing() {
+        start()
         dbg("Pair tapped")
         disconnect()
         central?.stopScan()
@@ -301,6 +308,7 @@ final class MacLink: NSObject, ObservableObject, CBCentralManagerDelegate, CBPer
     }
 
     func centralManagerDidUpdateState(_ central: CBCentralManager) {
+        bluetoothDenied = central.state == .unauthorized
         dbg("Bluetooth state: \(central.state.rawValue) (5 = on, 3 = unauthorized, 4 = off)")
         switch central.state {
         case .poweredOn:
@@ -312,7 +320,7 @@ final class MacLink: NSObject, ObservableObject, CBCentralManagerDelegate, CBPer
                 scan()
             }
         case .poweredOff: bluetoothProblem = "Bluetooth is off"
-        case .unauthorized: bluetoothProblem = "Bluetooth permission denied. Allow it in Settings › bleping."
+        case .unauthorized: bluetoothProblem = "bleping isn't allowed to use Bluetooth"
         case .unsupported: bluetoothProblem = "This device doesn't support Bluetooth LE"
         default: bluetoothProblem = "Waiting for Bluetooth…"
         }
