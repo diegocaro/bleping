@@ -1,5 +1,5 @@
 import AppKit
-import BlePingCore
+import AltiroCore
 import OSLog
 import ServiceManagement
 import SwiftUI
@@ -30,10 +30,10 @@ final class AppModel: ObservableObject {
         // isn't listening for any phone in range without the user knowing.
     }
 
-    private static let logger = Logger(subsystem: "dev.bleping.macapp", category: "engine")
+    private static let logger = Logger(subsystem: "dev.altiro.macapp", category: "engine")
 
     private func appendLog(_ line: String, personal: Bool = false) {
-        // Also to the system log:  log stream --predicate 'subsystem == "dev.bleping.macapp"'
+        // Also to the system log:  log stream --predicate 'subsystem == "dev.altiro.macapp"'
         // Lines quoting a notification or a device name are private there (shown as <private>),
         // so titles don't end up in the system log or in diagnostic reports. The log window
         // below still shows them in full.
@@ -69,7 +69,7 @@ final class AppModel: ObservableObject {
         switch engine.bluetooth {
         case .on, .starting: return nil
         case .off: return "Bluetooth is off"
-        case .unauthorized: return "bleping isn't allowed to use Bluetooth"
+        case .unauthorized: return "Altiro isn't allowed to use Bluetooth"
         case .unsupported: return "This Mac doesn't support Bluetooth LE"
         case .unavailable: return "Bluetooth isn't available"
         }

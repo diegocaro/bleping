@@ -13,7 +13,7 @@ struct ReceivedNotification: Identifiable, Codable {
 }
 
 enum PairingStep: Equatable {
-    /// Looking for a Mac running `bleping pair`.
+    /// Looking for a Mac running `altiro pair`.
     case searching
     /// Connected, exchanging keys.
     case exchanging
@@ -59,7 +59,7 @@ final class MacLink: NSObject, ObservableObject, CBCentralManagerDelegate, CBPer
 
     private func dbg(_ message: String) {
         let line = "\(Self.clock.string(from: Date())) \(message)"
-        print("bleping: \(line)")
+        print("altiro: \(line)")
         debugLog.append(line)
         if debugLog.count > 40 { debugLog.removeFirst(debugLog.count - 40) }
     }
@@ -101,7 +101,7 @@ final class MacLink: NSObject, ObservableObject, CBCentralManagerDelegate, CBPer
         // The restore identifier lets iOS relaunch the app in the background for Bluetooth
         // events after the system has suspended or killed it.
         central = CBCentralManager(delegate: self, queue: nil,
-                                   options: [CBCentralManagerOptionRestoreIdentifierKey: "bleping.central"])
+                                   options: [CBCentralManagerOptionRestoreIdentifierKey: "altiro.central"])
     }
 
     // MARK: Actions from the UI
@@ -179,7 +179,7 @@ final class MacLink: NSObject, ObservableObject, CBCentralManagerDelegate, CBPer
         guard central.state == .poweredOn else { return dbg("scan: Bluetooth not on yet (\(central.state.rawValue))") }
         guard peripheral == nil else { return dbg("scan: already have a Mac (\(peripheral!.state.rawValue))") }
         guard wantsConnection else { return dbg("scan: not paired and not pairing; idle") }
-        dbg("Scanning for bleping service…")
+        dbg("Scanning for Altiro service…")
         central.scanForPeripherals(withServices: [Wire.serviceUUID], options: nil)
     }
 
@@ -279,7 +279,7 @@ final class MacLink: NSObject, ObservableObject, CBCentralManagerDelegate, CBPer
             if pairingStep == .exchanging, reason.contains("pairing mode") {
                 // The Mac isn't in pairing mode (yet): the user may tap Pair on the iPhone first.
                 // Try again shortly rather than giving up on it.
-                pairingHint = "Found \(p.name ?? "a Mac"). Click Pair iPhone… in bleping on your Mac."
+                pairingHint = "Found \(p.name ?? "a Mac"). Click Pair iPhone… in Altiro on your Mac."
                 pairingStep = .searching
                 exchange = Exchange()
                 skip(p, "(not in pairing mode yet)", for: 2)
@@ -293,7 +293,7 @@ final class MacLink: NSObject, ObservableObject, CBCentralManagerDelegate, CBPer
     }
 
     /// Asks a Mac we connected to to prove it holds our pairing key. Anyone can advertise the
-    /// bleping service, so nothing is trusted (or shown as connected) until this passes.
+    /// Altiro service, so nothing is trusted (or shown as connected) until this passes.
     private func startVerification(_ p: CBPeripheral) {
         let nonce = PairingCrypto.randomBytes(PairMessage.nonceLength)
         challenge = (p.identifier, nonce)
@@ -308,7 +308,7 @@ final class MacLink: NSObject, ObservableObject, CBCentralManagerDelegate, CBPer
     private func handleVerification(_ message: PairMessage?, nonce: Data, from p: CBPeripheral) {
         guard let paired, case .verified(let proof, let macNonce)? = message,
               PairingCrypto.checkVerifyProof(proof, role: "mac", nonce: nonce, pairingKey: SymmetricKey(data: paired.key)) else {
-            // Another bleping Mac, one that no longer has our pairing, or an impostor.
+            // Another Altiro Mac, one that no longer has our pairing, or an impostor.
             return skip(p, "(not our Mac)")
         }
         challenge = nil
@@ -422,7 +422,7 @@ final class MacLink: NSObject, ObservableObject, CBCentralManagerDelegate, CBPer
                 scan()
             }
         case .poweredOff: bluetoothProblem = "Bluetooth is off"
-        case .unauthorized: bluetoothProblem = "bleping isn't allowed to use Bluetooth"
+        case .unauthorized: bluetoothProblem = "Altiro isn't allowed to use Bluetooth"
         case .unsupported: bluetoothProblem = "This device doesn't support Bluetooth LE"
         default: bluetoothProblem = "Waiting for Bluetooth…"
         }
@@ -462,7 +462,7 @@ final class MacLink: NSObject, ObservableObject, CBCentralManagerDelegate, CBPer
 
     func peripheral(_ p: CBPeripheral, didDiscoverServices error: Error?) {
         dbg("Services: \(p.services?.map { String($0.uuid.uuidString.prefix(8)) } ?? []) \(error?.localizedDescription ?? "")")
-        guard let service = p.services?.first(where: { $0.uuid == Wire.serviceUUID }) else { return skip(p, "(no bleping service)") }
+        guard let service = p.services?.first(where: { $0.uuid == Wire.serviceUUID }) else { return skip(p, "(no Altiro service)") }
         p.discoverCharacteristics([Wire.pairingUUID, Wire.eventsUUID], for: service)
     }
 
@@ -485,11 +485,11 @@ final class MacLink: NSObject, ObservableObject, CBCentralManagerDelegate, CBPer
               invalidatedServices.contains(where: { $0.uuid == Wire.serviceUUID }) else { return }
         // The Mac app quit or restarted. macOS can keep the Bluetooth link up meanwhile, so no
         // disconnect arrives: let go of this connection and scan, which finds the Mac again as
-        // soon as bleping on it advertises.
-        dbg("The Mac's bleping service went away (bleping on the Mac quit or restarted)")
+        // soon as Altiro on it advertises.
+        dbg("The Mac's Altiro service went away (Altiro on the Mac quit or restarted)")
         switch pairingStep {
         case .exchanging?, .compare?:
-            failPairing("bleping on the Mac stopped. Try again.")
+            failPairing("Altiro on the Mac stopped. Try again.")
         default:
             disconnect()
         }
@@ -530,7 +530,7 @@ final class MacLink: NSObject, ObservableObject, CBCentralManagerDelegate, CBPer
 }
 
 /// The received-notifications list, kept in a file in Application Support. Entries are kept for
-/// 24 hours (and at most 100), so bleping doesn't become a long-term record of who wrote to you.
+/// 24 hours (and at most 100), so Altiro doesn't become a long-term record of who wrote to you.
 enum HistoryStore {
     static let limit = 100
     static let maxAge: TimeInterval = 24 * 60 * 60
@@ -563,7 +563,7 @@ enum HistoryStore {
             values.isExcludedFromBackup = true
             try file.setResourceValues(values)
         } catch {
-            print("bleping: could not save the notification list: \(error)")
+            print("altiro: could not save the notification list: \(error)")
         }
     }
 }

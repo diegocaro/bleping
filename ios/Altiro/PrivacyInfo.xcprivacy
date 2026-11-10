@@ -1,7 +1,7 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <!--
-  bleping's privacy manifest. Nothing is collected or tracked: notifications go straight from
+  Altiro's privacy manifest. Nothing is collected or tracked: notifications go straight from
   the user's Mac to their iPhone over Bluetooth, with no server involved.
 -->
 <plist version="1.0">

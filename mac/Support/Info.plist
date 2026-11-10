@@ -3,12 +3,12 @@
 <plist version="1.0">
 <dict>
     <key>CFBundleIdentifier</key>
-    <string>dev.bleping.mac</string>
+    <string>dev.altiro.mac</string>
     <key>CFBundleName</key>
-    <string>bleping</string>
+    <string>Altiro</string>
     <key>CFBundleShortVersionString</key>
     <string>1.0</string>
     <key>NSBluetoothAlwaysUsageDescription</key>
-    <string>bleping sends your Mac notifications to your paired iPhone over Bluetooth.</string>
+    <string>Altiro sends your Mac notifications to your paired iPhone over Bluetooth.</string>
 </dict>
 </plist>

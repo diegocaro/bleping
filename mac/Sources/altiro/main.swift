@@ -1,4 +1,4 @@
-import BlePingCore
+import AltiroCore
 import Foundation
 
 func printLog(_ message: String) {
@@ -23,11 +23,11 @@ struct Options {
     var test = false
 
     static let usage = """
-        usage: bleping [pair | unpair] [options]
+        usage: altiro [pair | unpair] [options]
 
-          bleping            forward Mac notifications to the paired iPhone
-          bleping pair       pair with the iPhone app (compare a 6-digit code), then keep forwarding
-          bleping unpair     forget the paired iPhone
+          altiro            forward Mac notifications to the paired iPhone
+          altiro pair       pair with the iPhone app (compare a 6-digit code), then keep forwarding
+          altiro unpair     forget the paired iPhone
 
           --interval SEC     how often to check for new notifications (default 1)
           --only IDS         comma-separated bundle IDs to forward (default: all)
@@ -36,7 +36,7 @@ struct Options {
           --test             send a test notification at startup
           -h, --help         show this help
 
-        Don't run this and the bleping menu bar app at the same time.
+        Don't run this and the Altiro menu bar app at the same time.
         """
 
     static func parse(_ args: [String]) -> Options {
@@ -81,7 +81,7 @@ let options = Options.parse(Array(CommandLine.arguments.dropFirst()))
 if options.command == .unpair {
     do {
         try Engine.forgetPairing(storage: .file)
-        print("Forgot the paired iPhone. Run `bleping pair` to pair again (and tap Unpair in the iPhone app).")
+        print("Forgot the paired iPhone. Run `altiro pair` to pair again (and tap Unpair in the iPhone app).")
         exit(0)
     } catch {
         print("Could not remove \(Engine.pairingFile.path): \(error.localizedDescription)")
@@ -126,7 +126,7 @@ FileHandle.standardInput.readabilityHandler = { handle in
             case "y", "yes": engine.confirmPairing()
             case "n", "no":
                 engine.cancelPairing()
-                printLog("Pairing cancelled. Run `bleping pair` to try again.")
+                printLog("Pairing cancelled. Run `altiro pair` to try again.")
             default: printLog("Type y to pair or n to cancel.")
             }
         }

@@ -5,7 +5,7 @@
 	<key>CFBundleDevelopmentRegion</key>
 	<string>$(DEVELOPMENT_LANGUAGE)</string>
 	<key>CFBundleDisplayName</key>
-	<string>bleping</string>
+	<string>Altiro</string>
 	<key>CFBundleExecutable</key>
 	<string>$(EXECUTABLE_NAME)</string>
 	<key>CFBundleIdentifier</key>
@@ -23,7 +23,7 @@
 	<key>ITSAppUsesNonExemptEncryption</key>
 	<false/>
 	<key>NSBluetoothAlwaysUsageDescription</key>
-	<string>bleping connects to your Mac over Bluetooth to receive its notifications, including while bleping is in the background, so they reach your iPhone when the app isn't open.</string>
+	<string>Altiro connects to your Mac over Bluetooth to receive its notifications, including while Altiro is in the background, so they reach your iPhone when the app isn't open.</string>
 	<key>UIBackgroundModes</key>
 	<array>
 		<string>bluetooth-central</string>

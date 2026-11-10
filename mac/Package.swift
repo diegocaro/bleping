@@ -6,25 +6,25 @@ import PackageDescription
 let infoPlist = Context.packageDirectory + "/Support/Info.plist"
 
 let package = Package(
-    name: "bleping",
+    name: "altiro",
     platforms: [.macOS(.v13)],
     products: [
         // Used by the menu bar app (mac/App).
-        .library(name: "BlePingCore", targets: ["BlePingCore"]),
-        .executable(name: "bleping", targets: ["bleping"]),
+        .library(name: "AltiroCore", targets: ["AltiroCore"]),
+        .executable(name: "altiro", targets: ["altiro"]),
     ],
     targets: [
         // Everything except the user interface: BLE peripheral, pairing, notification
         // watching and encryption. Wire.swift is also compiled into the iPhone app.
         .target(
-            name: "BlePingCore",
-            path: "Sources/BlePingCore",
+            name: "AltiroCore",
+            path: "Sources/AltiroCore",
             linkerSettings: [.linkedLibrary("sqlite3")]
         ),
         .executableTarget(
-            name: "bleping",
-            dependencies: ["BlePingCore"],
-            path: "Sources/bleping",
+            name: "altiro",
+            dependencies: ["AltiroCore"],
+            path: "Sources/altiro",
             linkerSettings: [
                 .unsafeFlags([
                     "-Xlinker", "-sectcreate",

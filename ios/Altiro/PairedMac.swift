@@ -15,7 +15,7 @@ struct PairedMac: Codable, Equatable {
 enum PairedMacStore {
     private static let query: [String: Any] = [
         kSecClass as String: kSecClassGenericPassword,
-        kSecAttrService as String: "dev.bleping.pairing",
+        kSecAttrService as String: "dev.altiro.pairing",
         kSecAttrAccount as String: "mac",
     ]
 

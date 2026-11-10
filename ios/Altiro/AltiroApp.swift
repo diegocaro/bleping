@@ -2,7 +2,7 @@ import SwiftUI
 import UserNotifications
 
 @main
-struct BlePingApp: App {
+struct AltiroApp: App {
     @UIApplicationDelegateAdaptor(AppDelegate.self) private var appDelegate
 
     var body: some Scene {
@@ -35,7 +35,7 @@ final class AppDelegate: NSObject, UIApplicationDelegate, UNUserNotificationCent
 
 // MARK: - Notification permission
 
-/// Whether bleping may show notifications. Re-checked whenever the app comes to the front,
+/// Whether Altiro may show notifications. Re-checked whenever the app comes to the front,
 /// since the user can change it in Settings at any time.
 @MainActor
 final class NotificationAccess: ObservableObject {
@@ -47,7 +47,7 @@ final class NotificationAccess: ObservableObject {
     }
 
     /// Shows iOS's prompt if the user hasn't been asked yet. Called once a Mac is paired, when
-    /// it's clear why bleping wants to notify.
+    /// it's clear why Altiro wants to notify.
     func requestIfNeeded() async {
         await refresh()
         guard status == .notDetermined else { return }
@@ -56,7 +56,7 @@ final class NotificationAccess: ObservableObject {
     }
 }
 
-/// Opens bleping's page in the Settings app (or its notification settings).
+/// Opens Altiro's page in the Settings app (or its notification settings).
 func openSettingsApp(notifications: Bool = false) {
     let string = notifications ? UIApplication.openNotificationSettingsURLString : UIApplication.openSettingsURLString
     if let url = URL(string: string) { UIApplication.shared.open(url) }
@@ -111,7 +111,7 @@ struct ContentView: View {
                     Section("Bluetooth log") { DebugLogView(lines: link.debugLog) }
                 }
             }
-            .navigationTitle("bleping")
+            .navigationTitle("Altiro")
             .toolbar {
                 ToolbarItemGroup(placement: .primaryAction) {
                     if link.paired != nil {
@@ -182,7 +182,7 @@ struct StatusCard: View {
 struct NotificationsOffRow: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 6) {
-            Label("Notifications are off for bleping", systemImage: "bell.slash.fill")
+            Label("Notifications are off for Altiro", systemImage: "bell.slash.fill")
                 .foregroundStyle(.orange)
                 .font(.subheadline.weight(.semibold))
             Text("Your Mac's notifications still arrive here, but they can't appear on your Lock Screen or as banners.")
@@ -278,9 +278,9 @@ struct SettingsView: View {
                 }
 
                 Section {
-                    Label("Keep bleping in the app switcher. If you swipe it away, iOS stops the connection until you open it again.",
+                    Label("Keep Altiro in the app switcher. If you swipe it away, iOS stops the connection until you open it again.",
                           systemImage: "rectangle.stack")
-                    Label("After restarting your iPhone, open bleping once.", systemImage: "arrow.clockwise")
+                    Label("After restarting your iPhone, open Altiro once.", systemImage: "arrow.clockwise")
                 } header: {
                     Text("Staying connected")
                 }
@@ -306,7 +306,7 @@ struct SettingsView: View {
                                 titleVisibility: .visible) {
                 Button("Unpair", role: .destructive) { link.unpair() }
             } message: {
-                Text("Notifications stop until you pair again. Also unpair in bleping on the Mac.")
+                Text("Notifications stop until you pair again. Also unpair in Altiro on the Mac.")
             }
         }
     }
@@ -338,7 +338,7 @@ struct PairingView: View {
                     StepIcon(symbol: "exclamationmark", color: .red)
                     Text(link.bluetoothProblem ?? "").font(.title3.weight(.semibold))
                         .multilineTextAlignment(.center)
-                    Text("bleping uses Bluetooth to find your Mac and receive its notifications.")
+                    Text("Altiro uses Bluetooth to find your Mac and receive its notifications.")
                         .multilineTextAlignment(.center)
                         .foregroundStyle(.secondary)
                     if link.bluetoothDenied {
@@ -354,7 +354,7 @@ struct PairingView: View {
                             .foregroundStyle(.secondary)
                     } else {
                         Text("Looking for your Mac…").font(.title3.weight(.semibold))
-                        Text("On your Mac, open bleping and click **Pair iPhone…**. Keep your iPhone close to it.")
+                        Text("On your Mac, open Altiro and click **Pair iPhone…**. Keep your iPhone close to it.")
                             .multilineTextAlignment(.center)
                             .foregroundStyle(.secondary)
                     }
@@ -374,7 +374,7 @@ struct PairingView: View {
                         .font(.system(size: 44, weight: .semibold, design: .monospaced))
                     if waiting {
                         ProgressView()
-                        Text("Now click **Pair** in bleping on your Mac.")
+                        Text("Now click **Pair** in Altiro on your Mac.")
                             .multilineTextAlignment(.center)
                             .foregroundStyle(.secondary)
                     } else {

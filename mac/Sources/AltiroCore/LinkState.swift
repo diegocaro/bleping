@@ -1,7 +1,7 @@
 import SwiftUI
 
 // How both apps show the connection, so the Mac and the iPhone look like one product.
-// Compiled into the menu bar app (through BlePingCore) and the iPhone app (ios/project.yml
+// Compiled into the menu bar app (through AltiroCore) and the iPhone app (ios/project.yml
 // points here), like Wire.swift.
 
 public enum LinkState {

@@ -17,7 +17,7 @@ public enum PairingStorage {
     /// The login Keychain. Only the program that saved it can read it without macOS asking the
     /// user first. The menu bar app uses this.
     case keychain
-    /// A file only the user can read (`~/Library/Application Support/bleping/pairing.json`).
+    /// A file only the user can read (`~/Library/Application Support/altiro/pairing.json`).
     /// Any program running as the user can read it. The CLI uses this, because each rebuild of
     /// an unsigned tool counts as a new program to the Keychain and would keep asking.
     case file
@@ -28,7 +28,7 @@ struct PairingStore {
 
     static var fileURL: URL {
         FileManager.default.homeDirectoryForCurrentUser
-            .appendingPathComponent("Library/Application Support/bleping/pairing.json")
+            .appendingPathComponent("Library/Application Support/altiro/pairing.json")
     }
 
     func load() -> PairedPhone? {
@@ -93,7 +93,7 @@ struct PairingStore {
 private enum Keychain {
     private static let query: [String: Any] = [
         kSecClass as String: kSecClassGenericPassword,
-        kSecAttrService as String: "dev.bleping.mac.pairing",
+        kSecAttrService as String: "dev.altiro.mac.pairing",
         kSecAttrAccount as String: "iphone",
     ]
 
@@ -111,7 +111,7 @@ private enum Keychain {
         if status == errSecItemNotFound {
             var q = query
             q[kSecValueData as String] = data
-            q[kSecAttrLabel as String] = "bleping pairing key"
+            q[kSecAttrLabel as String] = "Altiro pairing key"
             try check(SecItemAdd(q as CFDictionary, nil))
         } else {
             try check(status)

@@ -3,7 +3,7 @@ import CoreBluetooth
 import CryptoKit
 import Foundation
 
-/// Runs bleping: advertises over Bluetooth, pairs with the iPhone, watches Notification
+/// Runs Altiro: advertises over Bluetooth, pairs with the iPhone, watches Notification
 /// Center and sends each new notification (app and title only, encrypted) to the iPhone.
 /// Used by both the CLI and the menu bar app. Everything happens on the main queue.
 public final class Engine {
@@ -116,7 +116,7 @@ public final class Engine {
     /// Where the CLI keeps the pairing key (`PairingStorage.file`).
     public static var pairingFile: URL { PairingStore.fileURL }
 
-    /// Forgets the paired iPhone without starting Bluetooth (for `bleping unpair`).
+    /// Forgets the paired iPhone without starting Bluetooth (for `altiro unpair`).
     public static func forgetPairing(storage: PairingStorage) throws {
         try PairingStore(storage: storage).delete()
     }
@@ -125,7 +125,7 @@ public final class Engine {
 
     public func start() {
         if let moved = store.migrateFromFile() {
-            log("Moved the pairing key into the Keychain (the bleping CLI now needs its own `bleping pair`)")
+            log("Moved the pairing key into the Keychain (the Altiro CLI now needs its own `altiro pair`)")
             use(moved)
         } else {
             use(store.load())
@@ -174,7 +174,7 @@ public final class Engine {
             } else if let session {
                 session.handle(data, from: central)
             } else if case .hello? = PairMessage(data) {
-                peripheral.sendPairing(.failed("This Mac isn't in pairing mode. Run `bleping pair` on it."), to: central)
+                peripheral.sendPairing(.failed("This Mac isn't in pairing mode. Run `altiro pair` on it."), to: central)
             }
         }
 
@@ -209,7 +209,7 @@ public final class Engine {
         self.session = session
         pairing = .waiting
         log("""
-            Pairing mode for the next \(Int(Self.pairingModeDuration / 60)) minutes. On your iPhone, open bleping and tap "Pair with Mac".
+            Pairing mode for the next \(Int(Self.pairingModeDuration / 60)) minutes. On your iPhone, open Altiro and tap "Pair with Mac".
               Both will show a 6-digit code; if they match, pair on both.
             """)
         scheduleEndOfPairingMode(after: Self.pairingModeDuration)
@@ -280,7 +280,7 @@ public final class Engine {
         let id = "test-\(UUID().uuidString)"
         let now = Date()
         let time = DateFormatter.localizedString(from: now, dateStyle: .none, timeStyle: .short)
-        send(MacNotification(id: id, app: "bleping", bundleID: "dev.bleping.mac",
+        send(MacNotification(id: id, app: "Altiro", bundleID: "dev.altiro.mac",
                              title: "Test notification", subtitle: "From \(macName) · \(time)", date: now))
         return id
     }

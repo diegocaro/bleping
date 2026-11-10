@@ -1,22 +1,22 @@
 # Generate the Xcode project with:  brew install xcodegen && xcodegen
-name: BlePing
+name: Altiro
 options:
-  bundleIdPrefix: dev.bleping
+  bundleIdPrefix: dev.altiro
   deploymentTarget:
     iOS: "18.0"
 targets:
-  BlePing:
+  Altiro:
     type: application
     platform: iOS
     sources:
-      - BlePing
+      - Altiro
       # Wire format and crypto, shared with the Mac tool (one copy, so they can't drift).
-      - path: ../mac/Sources/BlePingCore/Wire.swift
+      - path: ../mac/Sources/AltiroCore/Wire.swift
       # How the connection state looks, shared with the Mac app.
-      - path: ../mac/Sources/BlePingCore/LinkState.swift
+      - path: ../mac/Sources/AltiroCore/LinkState.swift
     settings:
       base:
-        PRODUCT_BUNDLE_IDENTIFIER: dev.bleping.phone
+        PRODUCT_BUNDLE_IDENTIFIER: dev.altiro.phone
         MARKETING_VERSION: "1.0"
         CURRENT_PROJECT_VERSION: "1"
         GENERATE_INFOPLIST_FILE: YES
@@ -25,13 +25,13 @@ targets:
         DEVELOPMENT_TEAM: 9DVD654W58
         CODE_SIGN_STYLE: Automatic
     info:
-      path: BlePing/Info.plist
+      path: Altiro/Info.plist
       properties:
-        CFBundleDisplayName: bleping
+        CFBundleDisplayName: Altiro
         UILaunchScreen: {}
-        # Shown in the Bluetooth permission prompt. It says why bleping uses Bluetooth in the
+        # Shown in the Bluetooth permission prompt. It says why Altiro uses Bluetooth in the
         # background, which App Review checks against the bluetooth-central background mode.
-        NSBluetoothAlwaysUsageDescription: bleping connects to your Mac over Bluetooth to receive its notifications, including while bleping is in the background, so they reach your iPhone when the app isn't open.
+        NSBluetoothAlwaysUsageDescription: Altiro connects to your Mac over Bluetooth to receive its notifications, including while Altiro is in the background, so they reach your iPhone when the app isn't open.
         # Receiving the Mac's notifications in the background is the app's core feature
         # (see docs/app-review-notes.md).
         UIBackgroundModes: [bluetooth-central]

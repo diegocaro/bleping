@@ -1,32 +1,32 @@
-# bleping
+# Altiro
 
 Shows your Mac's notifications on your iPhone over Bluetooth LE. The iPhone app pairs with the Mac
 once using a 6-digit code, stays connected, and shows each notification as "Mail — Ana García".
 Only the app name and the notification's title are sent, encrypted. The message body never leaves the Mac.
 
 ```
-Mail notification ─▶ usernoted DB ─▶ bleping (Mac) ══ encrypted BLE ══▶ bleping (iPhone) ─▶ local notification
+Mail notification ─▶ usernoted DB ─▶ Altiro (Mac) ══ encrypted BLE ══▶ Altiro (iPhone) ─▶ local notification
 ```
 
 ## How it works
 
-- **Detecting notifications.** macOS has no public API for this. `bleping` polls Notification
+- **Detecting notifications.** macOS has no public API for this. `altiro` polls Notification
   Center's own SQLite database once a second (read-only):
   `~/Library/Group Containers/group.com.apple.usernoted/db2/db`. It takes the app and the title
   (falling back to the subtitle), never the body.
 - **Connection.** The Mac is a BLE peripheral that always advertises service
   `7268617C-DB3D-4D61-9142-9C2D94ACBE6C`. The iPhone finds it, connects, and stays connected. iOS
   keeps that connection while the app is in the background and wakes it when data arrives.
-- **Pairing.** `bleping pair` on the Mac, "Pair with Mac" on the iPhone. The two run an ECDH key
+- **Pairing.** `altiro pair` on the Mac, "Pair with Mac" on the iPhone. The two run an ECDH key
   exchange (P-256) and each derives a 6-digit code from it. Both show the code and ask "Pair with …?",
   like Apple's own Bluetooth pairing: check they match and press **Pair** on both. Matching codes
   prove nobody intercepted the exchange, and because you confirm on both, a stranger's phone or Mac
   in range can't pair with yours. A stalled attempt times out. The Mac commits to its nonce
   before seeing the iPhone's, so an attacker in the middle can't steer the codes to match. Both
   sides then keep the same 256-bit key: the iPhone in its Keychain, the menu bar app in your login
-  Keychain, and the CLI in `~/Library/Application Support/bleping/pairing.json` (readable only by
+  Keychain, and the CLI in `~/Library/Application Support/altiro/pairing.json` (readable only by
   you). No system Bluetooth pairing is involved.
-- **Reconnecting.** Anything can advertise the bleping service or connect to it, so on every connect
+- **Reconnecting.** Anything can advertise the Altiro service or connect to it, so on every connect
   the two check each other: each sends a random challenge the other can answer only with the pairing
   key. The Mac sends notifications only to an iPhone that passed.
 - **Sending.** Each notification is encrypted with ChaCha20-Poly1305 and pushed over a GATT
@@ -35,14 +35,14 @@ Mail notification ─▶ usernoted DB ─▶ bleping (Mac) ══ encrypted BLE 
 - **Catching up** (can be turned off). The Mac keeps the last hour's notifications (up to 20), and the
   iPhone asks for them every time it connects. The iPhone drops ones it has already shown, and anything older than an hour.
 
-[`mac/Sources/BlePingCore/Wire.swift`](mac/Sources/BlePingCore/Wire.swift) holds the wire format and crypto. Both
+[`mac/Sources/AltiroCore/Wire.swift`](mac/Sources/AltiroCore/Wire.swift) holds the wire format and crypto. Both
 the Mac side and the iPhone app compile that one file.
 
 ## Layout
 
 ```
-mac/Sources/BlePingCore/   shared Mac logic: Bluetooth, pairing, notification watching (Engine.swift ties it together)
-mac/Sources/bleping/       the command-line tool
+mac/Sources/AltiroCore/   shared Mac logic: Bluetooth, pairing, notification watching (Engine.swift ties it together)
+mac/Sources/altiro/       the command-line tool
 mac/App/                   the menu bar app (XcodeGen project)
 ios/                       the iPhone app (XcodeGen project)
 ```
@@ -51,10 +51,10 @@ ios/                       the iPhone app (XcodeGen project)
 
 ```bash
 cd mac/App && xcodegen
-xcodebuild -project BlePingMac.xcodeproj -scheme BlePingMac -configuration Release \
+xcodebuild -project AltiroMac.xcodeproj -scheme AltiroMac -configuration Release \
   -derivedDataPath build -allowProvisioningUpdates build
-cp -R build/Build/Products/Release/bleping.app /Applications/
-open /Applications/bleping.app
+cp -R build/Build/Products/Release/Altiro.app /Applications/
+open /Applications/Altiro.app
 ```
 
 It lives in the menu bar (no Dock icon). The panel shows the connection, the pairing code to
@@ -62,11 +62,11 @@ compare while pairing, and the last notifications (with their app icons) and whe
 Settings (the gear button) has pairing and unpairing, **Send missed notifications** (turn it off to
 skip notifications that arrive while the iPhone is away instead of sending them when it reconnects),
 Open at Login, Send Test and the log. Allow Bluetooth when asked and turn on Full Disk Access
-for **bleping** (the panel links to the setting). Set your own `DEVELOPMENT_TEAM` in
+for **Altiro** (the panel links to the setting). Set your own `DEVELOPMENT_TEAM` in
 `mac/App/project.yml`.
 
 The app and the CLI keep separate pairings: the app's key is in your login Keychain, the CLI's in
-`~/Library/Application Support/bleping/pairing.json`. The iPhone pairs with one of them at a time, so
+`~/Library/Application Support/altiro/pairing.json`. The iPhone pairs with one of them at a time, so
 switching between them means pairing again. Run only one of them at a time. (An app that was paired
 before it used the Keychain moves its key there on first launch and removes the file.)
 
@@ -75,8 +75,8 @@ before it used the Keychain moves its key there on first launch and removes the 
 ```bash
 cd mac
 swift build -c release
-.build/release/bleping pair          # first time: pair, then keep forwarding
-.build/release/bleping               # afterwards
+.build/release/altiro pair          # first time: pair, then keep forwarding
+.build/release/altiro               # afterwards
 ```
 
 On first run, macOS needs two permissions for **the app you run it from** (Terminal, iTerm, …):
@@ -88,8 +88,8 @@ On first run, macOS needs two permissions for **the app you run it from** (Termi
 Restart that app after granting Full Disk Access.
 
 ```
-bleping pair       pair with the iPhone app (compare a 6-digit code), then keep forwarding
-bleping unpair     forget the paired iPhone
+altiro pair       pair with the iPhone app (compare a 6-digit code), then keep forwarding
+altiro unpair     forget the paired iPhone
 --interval SEC     DB poll interval (default 1)
 --only IDS         only these bundle IDs, comma-separated, e.g. com.apple.mail,com.apple.MobileSMS
 --ignore IDS       skip these bundle IDs
@@ -103,11 +103,11 @@ This requires Xcode (the full app, not just the command-line tools).
 
 ```bash
 brew install xcodegen
-cd ios && xcodegen && open BlePing.xcodeproj
+cd ios && xcodegen && open Altiro.xcodeproj
 ```
 
 In Xcode, pick your Team under Signing & Capabilities and run on your iPhone. Allow Bluetooth and
-notifications when it asks. Then tap **Pair with Mac** while `bleping pair` runs on the Mac.
+notifications when it asks. Then tap **Pair with Mac** while `altiro pair` runs on the Mac.
 
 ### iOS caveats
 

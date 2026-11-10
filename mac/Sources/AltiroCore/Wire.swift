@@ -152,7 +152,7 @@ enum PairingCrypto {
 
     /// The 6-digit code both sides show/check. Depends on both keys and both nonces.
     static func code(phoneKey: Data, macKey: Data, phoneNonce: Data, macNonce: Data) -> String {
-        let digest = SHA256.hash(data: Data("bleping-code-v1".utf8) + phoneKey + macKey + phoneNonce + macNonce)
+        let digest = SHA256.hash(data: Data("altiro-code-v1".utf8) + phoneKey + macKey + phoneNonce + macNonce)
         let value = digest.prefix(4).reduce(UInt32(0)) { $0 << 8 | UInt32($1) }
         return String(format: "%06u", value % 1_000_000)
     }
@@ -161,26 +161,26 @@ enum PairingCrypto {
     static func pairingKey(secret: SharedSecret, phoneKey: Data, macKey: Data,
                            phoneNonce: Data, macNonce: Data) -> SymmetricKey {
         secret.hkdfDerivedSymmetricKey(using: SHA256.self, salt: phoneNonce + macNonce,
-                                       sharedInfo: Data("bleping-pairing-v1".utf8) + phoneKey + macKey,
+                                       sharedInfo: Data("altiro-pairing-v1".utf8) + phoneKey + macKey,
                                        outputByteCount: 32)
     }
 
     /// Proof that a side holds the pairing key. `role` is "phone" or "mac".
     static func proof(_ role: String, key: SymmetricKey) -> Data {
-        Data(HMAC<SHA256>.authenticationCode(for: Data("bleping-confirm-\(role)".utf8), using: key))
+        Data(HMAC<SHA256>.authenticationCode(for: Data("altiro-confirm-\(role)".utf8), using: key))
     }
 
     static func checkProof(_ proof: Data, role: String, key: SymmetricKey) -> Bool {
-        HMAC<SHA256>.isValidAuthenticationCode(proof, authenticating: Data("bleping-confirm-\(role)".utf8), using: key)
+        HMAC<SHA256>.isValidAuthenticationCode(proof, authenticating: Data("altiro-confirm-\(role)".utf8), using: key)
     }
 
     /// One side's answer to the other's reconnect nonce. `role` is the side answering, "mac" or
     /// "phone". Uses its own key derived from the pairing key, so it can't be confused with the
     /// pairing proofs or the event key.
     static func verifyProof(_ role: String, nonce: Data, pairingKey: SymmetricKey) -> Data {
-        let key = HKDF<SHA256>.deriveKey(inputKeyMaterial: pairingKey, info: Data("bleping-verify-v1".utf8),
+        let key = HKDF<SHA256>.deriveKey(inputKeyMaterial: pairingKey, info: Data("altiro-verify-v1".utf8),
                                          outputByteCount: 32)
-        return Data(HMAC<SHA256>.authenticationCode(for: Data("bleping-verify-\(role)".utf8) + nonce, using: key))
+        return Data(HMAC<SHA256>.authenticationCode(for: Data("altiro-verify-\(role)".utf8) + nonce, using: key))
     }
 
     static func checkVerifyProof(_ proof: Data, role: String, nonce: Data, pairingKey: SymmetricKey) -> Bool {
@@ -212,7 +212,7 @@ struct MacNotification: Codable, Equatable {
 
 enum EventCrypto {
     static func eventKey(pairingKey: SymmetricKey) -> SymmetricKey {
-        HKDF<SHA256>.deriveKey(inputKeyMaterial: pairingKey, info: Data("bleping-events-v1".utf8), outputByteCount: 32)
+        HKDF<SHA256>.deriveKey(inputKeyMaterial: pairingKey, info: Data("altiro-events-v1".utf8), outputByteCount: 32)
     }
 
     static func seal(_ notification: MacNotification, key: SymmetricKey) throws -> Data {

@@ -1,8 +1,8 @@
-import BlePingCore
+import AltiroCore
 import SwiftUI
 
 @main
-struct BlePingMacApp: App {
+struct AltiroMacApp: App {
     @StateObject private var model = AppModel()
 
     var body: some Scene {
@@ -67,11 +67,11 @@ struct MenuPanel: View {
 
     @ViewBuilder private var problems: some View {
         if engine.bluetooth == .unauthorized {
-            Notice(text: "Allow bleping under Privacy & Security › Bluetooth.",
+            Notice(text: "Allow Altiro under Privacy & Security › Bluetooth.",
                    button: "Open Settings") { model.openPrivacySettings("Privacy_Bluetooth") }
         }
         if engine.watchError != nil {
-            Notice(text: "bleping needs Full Disk Access to see your notifications. Turn it on, then click Retry.",
+            Notice(text: "Altiro needs Full Disk Access to see your notifications. Turn it on, then click Retry.",
                    button: "Open Settings", secondary: "Retry",
                    action: { model.openPrivacySettings("Privacy_AllFiles") },
                    secondaryAction: { engine.startWatching() })
@@ -90,7 +90,7 @@ struct MenuPanel: View {
                 openSettings()
             }
                 .keyboardShortcut(",", modifiers: .command)
-            MenuRow(title: "Quit bleping", shortcut: "⌘Q") { NSApp.terminate(nil) }
+            MenuRow(title: "Quit Altiro", shortcut: "⌘Q") { NSApp.terminate(nil) }
                 .keyboardShortcut("q", modifiers: .command)
         }
     }
@@ -167,8 +167,8 @@ struct StatusHeader: View {
         guard engine.phone != nil else { return "Pair your iPhone to start." }
         if engine.phoneConnected { return "Notifications go to your iPhone." }
         return model.catchUp
-            ? "Open bleping on your iPhone. Missed notifications arrive when it reconnects."
-            : "Open bleping on your iPhone."
+            ? "Open Altiro on your iPhone. Missed notifications arrive when it reconnects."
+            : "Open Altiro on your iPhone."
     }
 }
 
@@ -181,7 +181,7 @@ struct PairingBox: View {
             switch pairing {
             case .waiting:
                 ProgressView().controlSize(.small)
-                Text("On your iPhone, open bleping and tap **Pair with Mac**.")
+                Text("On your iPhone, open Altiro and tap **Pair with Mac**.")
                     .multilineTextAlignment(.center)
                 Text("Pairing stays open for \(Int(Engine.pairingModeDuration / 60)) minutes.")
                     .font(.caption).foregroundStyle(.secondary)
@@ -306,7 +306,7 @@ struct ForwardedRow: View {
     }
 }
 
-/// The icon of the app that posted the notification (bleping's own for test notifications).
+/// The icon of the app that posted the notification (Altiro's own for test notifications).
 struct AppIcon: View {
     let bundleID: String
 
@@ -321,7 +321,7 @@ struct AppIcon: View {
     static func icon(for bundleID: String) -> NSImage {
         if let cached = cache[bundleID] { return cached }
         let image: NSImage
-        if bundleID.hasPrefix("dev.bleping.") {
+        if bundleID.hasPrefix("dev.altiro.") {
             image = NSApp.applicationIconImage
         } else if let url = NSWorkspace.shared.urlForApplication(withBundleIdentifier: bundleID) {
             image = NSWorkspace.shared.icon(forFile: url.path)
@@ -405,7 +405,7 @@ struct GeneralSettings: View {
     var body: some View {
         Form {
             Section {
-                Toggle("Open bleping at login",
+                Toggle("Open Altiro at login",
                        isOn: Binding(get: { model.openAtLogin }, set: { model.setOpenAtLogin($0) }))
             }
             Section {
@@ -448,7 +448,7 @@ struct PhoneSettings: View {
                 Section {
                     LabeledContent("Paired iPhone", value: "None")
                 } footer: {
-                    Text("Pair your iPhone to send it your Mac's notifications. You'll need the bleping app on your iPhone.")
+                    Text("Pair your iPhone to send it your Mac's notifications. You'll need the Altiro app on your iPhone.")
                 }
                 Section {
                     HStack {

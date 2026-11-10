@@ -1,7 +1,7 @@
 import CoreBluetooth
 import Foundation
 
-/// The Mac's side of the BLE link: advertises the bleping service all the time, takes
+/// The Mac's side of the BLE link: advertises the Altiro service all the time, takes
 /// pairing writes from the iPhone, and pushes (already encrypted) events to it.
 final class Peripheral: NSObject, CBPeripheralManagerDelegate {
     /// A pairing message arrived from an iPhone.
@@ -116,7 +116,7 @@ final class Peripheral: NSObject, CBPeripheralManagerDelegate {
         case .poweredOn:
             setUpService()
         case .unauthorized:
-            log("Allow Bluetooth for bleping (or the terminal running it) in System Settings › Privacy & Security › Bluetooth")
+            log("Allow Bluetooth for Altiro (or the terminal running it) in System Settings › Privacy & Security › Bluetooth")
         default:
             break
         }
@@ -128,7 +128,7 @@ final class Peripheral: NSObject, CBPeripheralManagerDelegate {
             return
         }
         // Only the service UUID, which the iPhone needs to find the Mac in the background. No
-        // name: there's no need to tell everyone nearby that this is a bleping Mac.
+        // name: there's no need to tell everyone nearby that this is an Altiro Mac.
         peripheral.startAdvertising([CBAdvertisementDataServiceUUIDsKey: [Wire.serviceUUID]])
     }
 
@@ -154,7 +154,7 @@ final class Peripheral: NSObject, CBPeripheralManagerDelegate {
         peripheral.respond(to: first, withResult: .success)
         for request in requests {
             if let value = request.value {
-                if ProcessInfo.processInfo.environment["BLEPING_DEBUG"] != nil {
+                if ProcessInfo.processInfo.environment["ALTIRO_DEBUG"] != nil {
                     log("debug: pairing message 0x\(String(format: "%02x", value.first ?? 0)) (\(value.count) bytes)")
                 }
                 onPairingMessage?(value, request.central)
