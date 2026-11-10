@@ -3,7 +3,7 @@ import CryptoKit
 import UIKit
 import UserNotifications
 
-struct ReceivedNotification: Identifiable {
+struct ReceivedNotification: Identifiable, Codable {
     let id: String
     let app: String
     let bundleID: String
@@ -45,7 +45,11 @@ final class MacLink: NSObject, ObservableObject, CBCentralManagerDelegate, CBPer
     @Published private(set) var paired: PairedMac? = PairedMacStore.load()
     @Published private(set) var pairingStep: PairingStep?
     @Published var codeError: String?
-    @Published private(set) var history: [ReceivedNotification] = []
+    /// Newest first. Saved on the phone so the list survives the app being restarted, but only
+    /// for a day (see HistoryStore).
+    @Published private(set) var history: [ReceivedNotification] = HistoryStore.load() {
+        didSet { HistoryStore.save(history) }
+    }
     /// What the Bluetooth side is doing, newest last. Shown on screen to diagnose connection problems.
     @Published private(set) var debugLog: [String] = []
 
@@ -140,6 +144,12 @@ final class MacLink: NSObject, ObservableObject, CBCentralManagerDelegate, CBPer
         history = []
     }
 
+    /// Drops entries older than a day. Called when the app comes to the front.
+    func pruneHistory() {
+        let kept = HistoryStore.pruned(history)
+        if kept.count != history.count { history = kept }
+    }
+
     func removeFromHistory(_ id: String) {
         history.removeAll { $0.id == id }
     }
@@ -147,6 +157,7 @@ final class MacLink: NSObject, ObservableObject, CBCentralManagerDelegate, CBPer
     func unpair() {
         PairedMacStore.delete()
         paired = nil
+        history = []   // forget what the old Mac sent, too
         disconnect()
         central?.stopScan()
     }
@@ -297,7 +308,7 @@ final class MacLink: NSObject, ObservableObject, CBCentralManagerDelegate, CBPer
         dbg("Event \(n.id) from \(n.app): showing notification")
         history.insert(ReceivedNotification(id: n.id, app: n.app, bundleID: n.bundleID, title: n.title, subtitle: n.subtitle, date: n.date),
                        at: 0)
-        if history.count > 100 { history.removeLast() }
+        if history.count > HistoryStore.limit { history.removeLast(history.count - HistoryStore.limit) }
 
         let content = UNMutableNotificationContent()
         // Shown as:  Mail
@@ -445,6 +456,45 @@ final class MacLink: NSObject, ObservableObject, CBCentralManagerDelegate, CBPer
             if let whole = reassembler.add(value) { receive(whole) }
         default:
             break
+        }
+    }
+}
+
+/// The received-notifications list, kept in a file in Application Support. Entries are kept for
+/// 24 hours (and at most 100), so bleping doesn't become a long-term record of who wrote to you.
+enum HistoryStore {
+    static let limit = 100
+    static let maxAge: TimeInterval = 24 * 60 * 60
+
+    private static var url: URL {
+        URL.applicationSupportDirectory.appending(path: "history.json")
+    }
+
+    static func pruned(_ items: [ReceivedNotification]) -> [ReceivedNotification] {
+        let cutoff = Date().addingTimeInterval(-maxAge)
+        return Array(items.filter { $0.date > cutoff }.prefix(limit))
+    }
+
+    static func load() -> [ReceivedNotification] {
+        guard let data = try? Data(contentsOf: url),
+              let items = try? JSONDecoder().decode([ReceivedNotification].self, from: data) else { return [] }
+        return pruned(items)
+    }
+
+    static func save(_ items: [ReceivedNotification]) {
+        do {
+            try FileManager.default.createDirectory(at: url.deletingLastPathComponent(), withIntermediateDirectories: true)
+            // Readable once the phone has been unlocked after a restart, like the pairing key, so
+            // notifications arriving in the background while it's locked can still be saved.
+            try JSONEncoder().encode(pruned(items))
+                .write(to: url, options: [.atomic, .completeFileProtectionUntilFirstUserAuthentication])
+            // Notification titles are personal: keep them out of iCloud and computer backups.
+            var file = url
+            var values = URLResourceValues()
+            values.isExcludedFromBackup = true
+            try file.setResourceValues(values)
+        } catch {
+            print("bleping: could not save the notification list: \(error)")
         }
     }
 }

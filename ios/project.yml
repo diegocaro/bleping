@@ -29,5 +29,9 @@ targets:
       properties:
         CFBundleDisplayName: bleping
         UILaunchScreen: {}
-        NSBluetoothAlwaysUsageDescription: bleping connects to your Mac over Bluetooth to show its notifications on your iPhone.
+        # Shown in the Bluetooth permission prompt. It says why bleping uses Bluetooth in the
+        # background, which App Review checks against the bluetooth-central background mode.
+        NSBluetoothAlwaysUsageDescription: bleping connects to your Mac over Bluetooth to receive its notifications, including while bleping is in the background, so they reach your iPhone when the app isn't open.
+        # Receiving the Mac's notifications in the background is the app's core feature
+        # (see docs/app-review-notes.md).
         UIBackgroundModes: [bluetooth-central]

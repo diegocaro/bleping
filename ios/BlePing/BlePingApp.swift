@@ -143,7 +143,10 @@ struct ContentView: View {
                 if paired { Task { await notifications.requestIfNeeded() } }
             }
             .onChange(of: scenePhase) { _, phase in
-                if phase == .active { Task { await notifications.refresh() } }
+                if phase == .active {
+                    link.pruneHistory()
+                    Task { await notifications.refresh() }
+                }
             }
             .sheet(isPresented: Binding(get: { link.pairingStep != nil },
                                         set: { if !$0 { link.cancelPairing() } })) {

@@ -21,7 +21,7 @@
 	<key>CFBundleVersion</key>
 	<string>1</string>
 	<key>NSBluetoothAlwaysUsageDescription</key>
-	<string>bleping connects to your Mac over Bluetooth to show its notifications on your iPhone.</string>
+	<string>bleping connects to your Mac over Bluetooth to receive its notifications, including while bleping is in the background, so they reach your iPhone when the app isn't open.</string>
 	<key>UIBackgroundModes</key>
 	<array>
 		<string>bluetooth-central</string>
