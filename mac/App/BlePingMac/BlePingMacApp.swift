@@ -356,7 +356,7 @@ struct SettingsView: View {
     @ObservedObject var model: AppModel
     let engine: Engine
 
-    private enum Tab: String { case general, iPhone, advanced }
+    private enum Tab: String { case general, iPhone, troubleshooting }
     /// Reopens on the tab you last used.
     @AppStorage("settingsTab") private var tab = Tab.general
 
@@ -368,9 +368,10 @@ struct SettingsView: View {
             PhoneSettings(model: model, engine: engine)
                 .tabItem { Label("iPhone", systemImage: "iphone") }
                 .tag(Tab.iPhone)
-            AdvancedSettings(model: model, engine: engine)
-                .tabItem { Label("Advanced", systemImage: "wrench.and.screwdriver") }
-                .tag(Tab.advanced)
+            // Named like the iPhone app's Troubleshooting section.
+            TroubleshootingSettings(model: model, engine: engine)
+                .tabItem { Label("Troubleshooting", systemImage: "wrench.and.screwdriver") }
+                .tag(Tab.troubleshooting)
         }
         .frame(width: 460)
         .onAppear {
@@ -453,7 +454,7 @@ struct PhoneSettings: View {
     }
 }
 
-struct AdvancedSettings: View {
+struct TroubleshootingSettings: View {
     @ObservedObject var model: AppModel
     let engine: Engine
     @Environment(\.openWindow) private var openWindow
@@ -464,7 +465,7 @@ struct AdvancedSettings: View {
 
     var body: some View {
         Form {
-            Section("Troubleshooting") {
+            Section {
                 LabeledContent {
                     Button("Send Test") { sendTest() }
                         .disabled(engine.phone == nil || testing)
@@ -499,7 +500,7 @@ struct AdvancedSettings: View {
     }
 }
 
-extension AdvancedSettings {
+extension TroubleshootingSettings {
     /// Clears the previous result, then sends after a short pause so each click shows a fresh result.
     private func sendTest() {
         testID = nil
