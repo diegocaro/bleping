@@ -14,7 +14,12 @@ func printLog(_ message: String) {
 struct Options {
     enum Command { case run, pair, unpair }
     var command = Command.run
-    var engine = Engine.Options()
+    var engine: Engine.Options = {
+        var options = Engine.Options()
+        // The CLI keeps its own pairing in a file; the menu bar app uses the Keychain.
+        options.storage = .file
+        return options
+    }()
     var test = false
 
     static let usage = """
@@ -75,7 +80,7 @@ let options = Options.parse(Array(CommandLine.arguments.dropFirst()))
 
 if options.command == .unpair {
     do {
-        try Engine.forgetPairing()
+        try Engine.forgetPairing(storage: .file)
         print("Forgot the paired iPhone. Run `bleping pair` to pair again (and tap Unpair in the iPhone app).")
         exit(0)
     } catch {

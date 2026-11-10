@@ -23,8 +23,9 @@ Mail notification ─▶ usernoted DB ─▶ bleping (Mac) ══ encrypted BLE 
   prove nobody intercepted the exchange, and because you confirm on both, a stranger's phone or Mac
   in range can't pair with yours. A stalled attempt times out. The Mac commits to its nonce
   before seeing the iPhone's, so an attacker in the middle can't steer the codes to match. Both
-  sides then keep the same 256-bit key: the Mac in `~/Library/Application Support/bleping/pairing.json`
-  (readable only by you), the iPhone in its Keychain. No system Bluetooth pairing is involved.
+  sides then keep the same 256-bit key: the iPhone in its Keychain, the menu bar app in your login
+  Keychain, and the CLI in `~/Library/Application Support/bleping/pairing.json` (readable only by
+  you). No system Bluetooth pairing is involved.
 - **Reconnecting.** Anything can advertise the bleping service or connect to it, so on every connect
   the two check each other: each sends a random challenge the other can answer only with the pairing
   key. The Mac sends notifications only to an iPhone that passed.
@@ -64,8 +65,10 @@ Open at Login, Send Test and the log. Allow Bluetooth when asked and turn on Ful
 for **bleping** (the panel links to the setting). Set your own `DEVELOPMENT_TEAM` in
 `mac/App/project.yml`.
 
-The app and the CLI share the pairing (`~/Library/Application Support/bleping/pairing.json`), so
-pairing with either works for both. Run only one of them at a time.
+The app and the CLI keep separate pairings: the app's key is in your login Keychain, the CLI's in
+`~/Library/Application Support/bleping/pairing.json`. The iPhone pairs with one of them at a time, so
+switching between them means pairing again. Run only one of them at a time. (An app that was paired
+before it used the Keychain moves its key there on first launch and removes the file.)
 
 ## Mac command-line tool
 

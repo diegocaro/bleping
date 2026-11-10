@@ -17,6 +17,8 @@ public final class Engine {
         /// Keep the last hour's notifications and resend them when the iPhone reconnects.
         /// When off, notifications that arrive while the iPhone is away are skipped.
         public var catchUp = true
+        /// Where the pairing key is kept: the Keychain (the menu bar app) or a file (the CLI).
+        public var storage = PairingStorage.keychain
 
         public init() {}
     }
@@ -107,16 +109,23 @@ public final class Engine {
     /// "482 913" for "482913".
     public static func displayCode(_ code: String) -> String { PairingCrypto.display(code) }
 
-    /// Where the pairing key is kept.
-    public static var pairingFile: URL { PairingStore.url }
+    /// Where the CLI keeps the pairing key (`PairingStorage.file`).
+    public static var pairingFile: URL { PairingStore.fileURL }
 
     /// Forgets the paired iPhone without starting Bluetooth (for `bleping unpair`).
-    public static func forgetPairing() throws {
-        try PairingStore.delete()
+    public static func forgetPairing(storage: PairingStorage) throws {
+        try PairingStore(storage: storage).delete()
     }
 
+    private var store: PairingStore { PairingStore(storage: options.storage) }
+
     public func start() {
-        use(PairingStore.load())
+        if let moved = store.migrateFromFile() {
+            log("Moved the pairing key into the Keychain (the bleping CLI now needs its own `bleping pair`)")
+            use(moved)
+        } else {
+            use(store.load())
+        }
         if let paired {
             log("Paired with \"\(paired.phoneName)\" since \(DateFormatter.localizedString(from: paired.pairedAt, dateStyle: .medium, timeStyle: .short))", personal: true)
         }
@@ -176,7 +185,7 @@ public final class Engine {
         case .exchanging?, .compare?: return
         default: break
         }
-        let session = PairingSession(peripheral: peripheral) { [weak self] phone, central in
+        let session = PairingSession(peripheral: peripheral, store: store) { [weak self] phone, central in
             guard let self else { return }
             use(phone)
             // It just proved itself by pairing, and goes straight to listening for events.
@@ -218,9 +227,9 @@ public final class Engine {
 
     public func unpair() {
         do {
-            try PairingStore.delete()
+            try store.delete()
         } catch {
-            log("Could not remove \(PairingStore.url.path): \(error.localizedDescription)")
+            log("Could not forget the pairing: \(error.localizedDescription)")
         }
         use(nil)
         log("Forgot the paired iPhone")

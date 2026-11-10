@@ -2,7 +2,7 @@ import CoreBluetooth
 import CryptoKit
 import Foundation
 
-/// The iPhone this Mac is paired with. Stored in a file only the user can read.
+/// The iPhone this Mac is paired with.
 struct PairedPhone: Codable {
     let key: Data
     let pairingID: Data
@@ -12,33 +12,121 @@ struct PairedPhone: Codable {
     var pairingKey: SymmetricKey { SymmetricKey(data: key) }
 }
 
-enum PairingStore {
-    static var url: URL {
+/// Where the Mac keeps the pairing key.
+public enum PairingStorage {
+    /// The login Keychain. Only the program that saved it can read it without macOS asking the
+    /// user first. The menu bar app uses this.
+    case keychain
+    /// A file only the user can read (`~/Library/Application Support/bleping/pairing.json`).
+    /// Any program running as the user can read it. The CLI uses this, because each rebuild of
+    /// an unsigned tool counts as a new program to the Keychain and would keep asking.
+    case file
+}
+
+struct PairingStore {
+    let storage: PairingStorage
+
+    static var fileURL: URL {
         FileManager.default.homeDirectoryForCurrentUser
             .appendingPathComponent("Library/Application Support/bleping/pairing.json")
     }
 
-    static func load() -> PairedPhone? {
-        guard let data = try? Data(contentsOf: url) else { return nil }
+    func load() -> PairedPhone? {
+        guard let data = storage == .keychain ? Keychain.load() : try? Data(contentsOf: Self.fileURL) else { return nil }
         return try? JSONDecoder().decode(PairedPhone.self, from: data)
     }
 
-    static func save(_ phone: PairedPhone) throws {
-        let dir = url.deletingLastPathComponent()
-        try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true,
-                                                attributes: [.posixPermissions: 0o700])
-        // Create the file 0600 before writing, so the key is never readable by others.
-        if !FileManager.default.fileExists(atPath: url.path) {
-            FileManager.default.createFile(atPath: url.path, contents: nil, attributes: [.posixPermissions: 0o600])
+    func save(_ phone: PairedPhone) throws {
+        let data = try JSONEncoder().encode(phone)
+        switch storage {
+        case .keychain: try Keychain.save(data)
+        case .file: try Self.writeFile(data)
         }
-        let handle = try FileHandle(forWritingTo: url)
+    }
+
+    func delete() throws {
+        switch storage {
+        case .keychain: try Keychain.delete()
+        case .file: try Self.deleteFile()
+        }
+    }
+
+    /// Moves a pairing the menu bar app saved in the file (before it used the Keychain) into the
+    /// Keychain, and removes the file so the key no longer sits on disk. Returns the pairing moved.
+    func migrateFromFile() -> PairedPhone? {
+        guard storage == .keychain, Keychain.load() == nil,
+              let data = try? Data(contentsOf: Self.fileURL),
+              let phone = try? JSONDecoder().decode(PairedPhone.self, from: data) else { return nil }
+        do {
+            try Keychain.save(data)
+            try Self.deleteFile()
+        } catch {
+            log("Could not move the pairing into the Keychain: \(error.localizedDescription)")
+            return nil
+        }
+        return phone
+    }
+
+    private static func writeFile(_ data: Data) throws {
+        let fm = FileManager.default
+        let dir = fileURL.deletingLastPathComponent()
+        try fm.createDirectory(at: dir, withIntermediateDirectories: true, attributes: [.posixPermissions: 0o700])
+        // Create the file 0600 before writing, so the key is never readable by others, and
+        // tighten both again in case they already existed with looser permissions.
+        if !fm.fileExists(atPath: fileURL.path) {
+            fm.createFile(atPath: fileURL.path, contents: nil, attributes: [.posixPermissions: 0o600])
+        }
+        try fm.setAttributes([.posixPermissions: 0o700], ofItemAtPath: dir.path)
+        try fm.setAttributes([.posixPermissions: 0o600], ofItemAtPath: fileURL.path)
+        let handle = try FileHandle(forWritingTo: fileURL)
         defer { try? handle.close() }
         try handle.truncate(atOffset: 0)
-        try handle.write(contentsOf: JSONEncoder().encode(phone))
+        try handle.write(contentsOf: data)
+    }
+
+    private static func deleteFile() throws {
+        if FileManager.default.fileExists(atPath: fileURL.path) { try FileManager.default.removeItem(at: fileURL) }
+    }
+}
+
+/// The pairing key in the user's login Keychain, as a generic password.
+private enum Keychain {
+    private static let query: [String: Any] = [
+        kSecClass as String: kSecClassGenericPassword,
+        kSecAttrService as String: "dev.bleping.mac.pairing",
+        kSecAttrAccount as String: "iphone",
+    ]
+
+    static func load() -> Data? {
+        var q = query
+        q[kSecReturnData as String] = true
+        q[kSecMatchLimit as String] = kSecMatchLimitOne
+        var result: AnyObject?
+        guard SecItemCopyMatching(q as CFDictionary, &result) == errSecSuccess else { return nil }
+        return result as? Data
+    }
+
+    static func save(_ data: Data) throws {
+        let status = SecItemUpdate(query as CFDictionary, [kSecValueData as String: data] as CFDictionary)
+        if status == errSecItemNotFound {
+            var q = query
+            q[kSecValueData as String] = data
+            q[kSecAttrLabel as String] = "bleping pairing key"
+            try check(SecItemAdd(q as CFDictionary, nil))
+        } else {
+            try check(status)
+        }
     }
 
     static func delete() throws {
-        if FileManager.default.fileExists(atPath: url.path) { try FileManager.default.removeItem(at: url) }
+        let status = SecItemDelete(query as CFDictionary)
+        if status != errSecItemNotFound { try check(status) }
+    }
+
+    private static func check(_ status: OSStatus) throws {
+        guard status != errSecSuccess else { return }
+        let message = SecCopyErrorMessageString(status, nil) as String? ?? "Keychain error \(status)"
+        throw NSError(domain: NSOSStatusErrorDomain, code: Int(status), userInfo: [NSLocalizedDescriptionKey: message])
     }
 }
 
@@ -72,14 +160,16 @@ final class PairingSession {
     var onProgress: ((Progress) -> Void)?
 
     private let peripheral: Peripheral
+    private let store: PairingStore
     private let onPaired: (PairedPhone, CBCentral) -> Void
     private var state = State.waitingForPhone
     private var timeout: DispatchWorkItem?
     /// Chosen up front so the Mac's Pair message can carry it before anything is saved.
     private let pairingID = PairingCrypto.randomBytes(PairMessage.pairingIDLength)
 
-    init(peripheral: Peripheral, onPaired: @escaping (PairedPhone, CBCentral) -> Void) {
+    init(peripheral: Peripheral, store: PairingStore, onPaired: @escaping (PairedPhone, CBCentral) -> Void) {
         self.peripheral = peripheral
+        self.store = store
         self.onPaired = onPaired
     }
 
@@ -182,7 +272,7 @@ final class PairingSession {
         let paired = PairedPhone(key: key.withUnsafeBytes { Data($0) }, pairingID: pairingID,
                                  phoneName: phoneName, pairedAt: Date())
         do {
-            try PairingStore.save(paired)
+            try store.save(paired)
         } catch {
             return fail("The Mac could not save the pairing: \(error.localizedDescription)", to: central)
         }

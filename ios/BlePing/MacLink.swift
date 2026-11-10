@@ -480,6 +480,22 @@ final class MacLink: NSObject, ObservableObject, CBCentralManagerDelegate, CBPer
         }
     }
 
+    func peripheral(_ p: CBPeripheral, didModifyServices invalidatedServices: [CBService]) {
+        guard p.identifier == peripheral?.identifier,
+              invalidatedServices.contains(where: { $0.uuid == Wire.serviceUUID }) else { return }
+        // The Mac app quit or restarted. macOS can keep the Bluetooth link up meanwhile, so no
+        // disconnect arrives: let go of this connection and scan, which finds the Mac again as
+        // soon as bleping on it advertises.
+        dbg("The Mac's bleping service went away (bleping on the Mac quit or restarted)")
+        switch pairingStep {
+        case .exchanging?, .compare?:
+            failPairing("bleping on the Mac stopped. Try again.")
+        default:
+            disconnect()
+        }
+        scan()
+    }
+
     func peripheral(_ p: CBPeripheral, didUpdateNotificationStateFor c: CBCharacteristic, error: Error?) {
         dbg("Notify \(c.uuid.uuidString.prefix(8)) = \(c.isNotifying) \(error?.localizedDescription ?? "")")
         if error != nil { return skip(p, "(subscribe failed)") }
