@@ -363,15 +363,27 @@ struct PairingView: View {
                     StepIcon(symbol: "lock")
                     Text("Connecting securely…").font(.title3.weight(.semibold))
                     ProgressView()
-                case .showCode(let code)?:
-                    StepIcon(symbol: "number")
-                    Text("Type this code on your Mac").font(.title3.weight(.semibold))
-                    Text(PairingCrypto.display(code))
-                        .font(.system(size: 44, weight: .semibold, design: .monospaced))
-                        .textSelection(.enabled)
-                    Text("Your Mac asks for it in bleping. Never type it anywhere else.")
+                case .compare(let code, let macName, let waiting)?:
+                    StepIcon(symbol: "lock")
+                    Text("Pair with “\(macName)”?").font(.title3.weight(.semibold))
+                        .multilineTextAlignment(.center)
+                    Text("Make sure your Mac shows this code.")
                         .multilineTextAlignment(.center)
                         .foregroundStyle(.secondary)
+                    Text(PairingCrypto.display(code))
+                        .font(.system(size: 44, weight: .semibold, design: .monospaced))
+                    if waiting {
+                        ProgressView()
+                        Text("Now click **Pair** in bleping on your Mac.")
+                            .multilineTextAlignment(.center)
+                            .foregroundStyle(.secondary)
+                    } else {
+                        Button { link.confirmPairing() } label: {
+                            Text("Pair").frame(maxWidth: .infinity)
+                        }
+                        .buttonStyle(.borderedProminent)
+                        .controlSize(.large)
+                    }
                 case .paired(let macName)?:
                     StepIcon(symbol: "checkmark", color: .green)
                     Text("Paired with \(macName)").font(.title3.weight(.semibold))

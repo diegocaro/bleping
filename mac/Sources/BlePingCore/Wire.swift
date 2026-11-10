@@ -8,15 +8,19 @@ import Foundation
 // How it works:
 //   1. The Mac is a BLE peripheral that always advertises `serviceUUID`.
 //   2. Pairing (once): the iPhone connects and the two run an ECDH key exchange over the
-//      `pairing` characteristic. Both derive a 6-digit code from the exchange; the iPhone
-//      shows it and the user types it on the Mac. Matching codes prove nobody sat in the
-//      middle, and because the code is typed on the Mac, only the iPhone in the user's hand
-//      can pair (another phone in range would show its own code, which the user never sees).
-//      Both sides then keep the same 256-bit key.
-//   3. Afterwards the iPhone reconnects whenever the Mac is in range and challenges it: it
-//      writes a random nonce, and only a Mac holding the pairing key can answer. Then it
-//      subscribes to `events`. Each Mac notification arrives encrypted (ChaCha20-Poly1305)
-//      with a key derived from the pairing key.
+//      `pairing` characteristic. Both derive a 6-digit code from the exchange and show it,
+//      and the user checks they match and presses Pair on both, as with Apple's own
+//      Bluetooth pairing. Matching codes prove nobody sat in the middle. Asking on both
+//      sides means neither can be paired by a stranger's device in range: a stranger's
+//      phone or Mac can't press Pair on the user's own Mac or iPhone. Both sides then keep
+//      the same 256-bit key, and each saves it only once both users' Pair presses arrived.
+//   3. Afterwards the iPhone reconnects whenever the Mac is in range, and the two check each
+//      other: the iPhone writes a random nonce that only a Mac holding the pairing key can
+//      answer, and the Mac's answer carries its own nonce, which the iPhone answers in turn.
+//      Then the iPhone subscribes to `events`. The Mac sends events (and honours catch-up
+//      requests) only to an iPhone that passed, so other devices in range get nothing.
+//      Each Mac notification arrives encrypted (ChaCha20-Poly1305) with a key derived from
+//      the pairing key.
 
 enum Wire {
     static let serviceUUID = CBUUID(string: "7268617C-DB3D-4D61-9142-9C2D94ACBE6C")
@@ -24,8 +28,6 @@ enum Wire {
     static let pairingUUID = CBUUID(string: "7268617C-0001-4D61-9142-9C2D94ACBE6C")
     /// Encrypted notifications, Mac → iPhone, by notification.
     static let eventsUUID = CBUUID(string: "7268617C-0002-4D61-9142-9C2D94ACBE6C")
-
-    static let advertisedName = "bleping"
     /// The Mac resends notifications from this far back when the iPhone reconnects;
     /// the iPhone ignores anything older (which also defeats replays of old traffic).
     static let replayWindow: TimeInterval = 3600
@@ -34,20 +36,20 @@ enum Wire {
 // MARK: - Pairing messages
 
 enum PairMessage: Equatable {
-    /// iPhone → Mac: the iPhone's ephemeral P-256 public key (65 bytes, X9.63).
-    case hello(phoneKey: Data)
+    /// iPhone → Mac: the iPhone's ephemeral P-256 public key (65 bytes, X9.63) and its name,
+    /// so the Mac can ask "Pair with …?". The name is only shown, never trusted.
+    case hello(phoneKey: Data, phoneName: String)
     /// Mac → iPhone: the Mac's public key and a commitment to its nonce.
     case commit(macKey: Data, commitment: Data)
     /// iPhone → Mac: the iPhone's nonce (16 bytes).
     case phoneNonce(Data)
     /// Mac → iPhone: the Mac's nonce, revealed only after it has seen the iPhone's.
-    /// Both sides can now work out the code; the iPhone shows it.
+    /// Both sides can now work out the code, and both show it.
     case macNonce(Data)
-    /// iPhone → Mac, right after the nonces: proof it holds the new key, and its name. The Mac
-    /// then asks the user to type the code the iPhone shows.
+    /// iPhone → Mac, when the user pressed Pair on the iPhone: proof it holds the new key.
     case phoneConfirm(proof: Data, phoneName: String)
-    /// Mac → iPhone, once the user typed the matching code on the Mac: the Mac's proof, plus
-    /// the pairing ID and the Mac's name. The iPhone saves the pairing when it gets this.
+    /// Mac → iPhone, when the user pressed Pair on the Mac: the Mac's proof, plus the pairing
+    /// ID and the Mac's name. Each side saves the pairing once it has both Pair presses.
     case macConfirm(proof: Data, pairingID: Data, macName: String)
     /// Either way: pairing stopped. The text is shown to the user.
     case failed(String)
@@ -57,14 +59,17 @@ enum PairMessage: Equatable {
     case catchUp
     /// iPhone → Mac, on every connect once paired: "prove you hold our key" (a fresh nonce).
     case verify(nonce: Data)
-    /// Mac → iPhone: the answer to `verify` (see `PairingCrypto.verifyProof`).
-    case verified(proof: Data)
+    /// Mac → iPhone: the answer to `verify`, plus the Mac's own nonce for the iPhone to answer.
+    case verified(proof: Data, macNonce: Data)
+    /// iPhone → Mac: the answer to the Mac's nonce. Until this arrives the Mac sends that
+    /// iPhone nothing.
+    case phoneVerified(proof: Data)
 
     static let keyLength = 65, nonceLength = 16, proofLength = 32, pairingIDLength = 16
 
     var encoded: Data {
         switch self {
-        case .hello(let key): return Data([0x01]) + key
+        case .hello(let key, let name): return Data([0x01]) + key + Self.text(name)
         case .commit(let key, let commitment): return Data([0x02]) + key + commitment
         case .phoneNonce(let nonce): return Data([0x03]) + nonce
         case .macNonce(let nonce): return Data([0x04]) + nonce
@@ -73,7 +78,8 @@ enum PairMessage: Equatable {
         case .failed(let reason): return Data([0x7F]) + Self.text(reason, limit: 120)
         case .catchUp: return Data([0x10])
         case .verify(let nonce): return Data([0x11]) + nonce
-        case .verified(let proof): return Data([0x12]) + proof
+        case .verified(let proof, let nonce): return Data([0x12]) + proof + nonce
+        case .phoneVerified(let proof): return Data([0x13]) + proof
         }
     }
 
@@ -87,8 +93,8 @@ enum PairMessage: Equatable {
         let k = Self.keyLength, n = Self.nonceLength, p = Self.proofLength, i = Self.pairingIDLength
         switch type {
         case 0x01:
-            guard body.count == k else { return nil }
-            self = .hello(phoneKey: body)
+            guard let key = slice(0, k) else { return nil }
+            self = .hello(phoneKey: key, phoneName: rest(k))
         case 0x02:
             guard body.count == k + 32, let key = slice(0, k), let c = slice(k, 32) else { return nil }
             self = .commit(macKey: key, commitment: c)
@@ -112,8 +118,11 @@ enum PairMessage: Equatable {
             guard body.count == n else { return nil }
             self = .verify(nonce: body)
         case 0x12:
+            guard body.count == p + n, let proof = slice(0, p), let nonce = slice(p, n) else { return nil }
+            self = .verified(proof: proof, macNonce: nonce)
+        case 0x13:
             guard body.count == p else { return nil }
-            self = .verified(proof: body)
+            self = .phoneVerified(proof: body)
         default:
             return nil
         }
@@ -165,16 +174,17 @@ enum PairingCrypto {
         HMAC<SHA256>.isValidAuthenticationCode(proof, authenticating: Data("bleping-confirm-\(role)".utf8), using: key)
     }
 
-    /// The Mac's answer to the iPhone's `verify` nonce. Uses its own key derived from the
-    /// pairing key, so it can't be confused with the pairing proofs or the event key.
-    static func verifyProof(nonce: Data, pairingKey: SymmetricKey) -> Data {
+    /// One side's answer to the other's reconnect nonce. `role` is the side answering, "mac" or
+    /// "phone". Uses its own key derived from the pairing key, so it can't be confused with the
+    /// pairing proofs or the event key.
+    static func verifyProof(_ role: String, nonce: Data, pairingKey: SymmetricKey) -> Data {
         let key = HKDF<SHA256>.deriveKey(inputKeyMaterial: pairingKey, info: Data("bleping-verify-v1".utf8),
                                          outputByteCount: 32)
-        return Data(HMAC<SHA256>.authenticationCode(for: Data("bleping-verify-mac".utf8) + nonce, using: key))
+        return Data(HMAC<SHA256>.authenticationCode(for: Data("bleping-verify-\(role)".utf8) + nonce, using: key))
     }
 
-    static func checkVerifyProof(_ proof: Data, nonce: Data, pairingKey: SymmetricKey) -> Bool {
-        let expected = verifyProof(nonce: nonce, pairingKey: pairingKey)
+    static func checkVerifyProof(_ proof: Data, role: String, nonce: Data, pairingKey: SymmetricKey) -> Bool {
+        let expected = verifyProof(role, nonce: nonce, pairingKey: pairingKey)
         // Constant-time comparison.
         return proof.count == expected.count && zip(proof, expected).reduce(0) { $0 | ($1.0 ^ $1.1) } == 0
     }

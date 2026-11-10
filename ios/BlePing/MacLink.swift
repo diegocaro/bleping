@@ -17,8 +17,9 @@ enum PairingStep: Equatable {
     case searching
     /// Connected, exchanging keys.
     case exchanging
-    /// Showing this code; waiting for the user to type it on the Mac.
-    case showCode(String)
+    /// Both screens show `code`; asking "Pair with `macName`?". `waitingForMac`: the user
+    /// pressed Pair here, now waiting for Pair on the Mac.
+    case compare(code: String, macName: String, waitingForMac: Bool)
     /// Done: paired with the Mac of this name. Shown briefly before the sheet closes.
     case paired(String)
     case failed(String)
@@ -85,6 +86,10 @@ final class MacLink: NSObject, ObservableObject, CBCentralManagerDelegate, CBPer
         var commitment: Data?
         var code: String?
         var key: SymmetricKey?
+        /// The user pressed Pair on the iPhone.
+        var approved = false
+        /// The Mac's Pair arrived (its proof already checked).
+        var macApproval: (pairingID: Data, macName: String)?
         var phoneKey: Data { phonePrivate.publicKey.x963Representation }
     }
 
@@ -127,6 +132,20 @@ final class MacLink: NSObject, ObservableObject, CBCentralManagerDelegate, CBPer
         pairingStep = nil
         disconnect()
         scan()
+    }
+
+    /// The user pressed Pair: the code matches the one on the Mac.
+    func confirmPairing() {
+        guard var ex = exchange, let key = ex.key, !ex.approved,
+              case .compare(let code, let macName, false)? = pairingStep else { return }
+        ex.approved = true
+        exchange = ex
+        write(.phoneConfirm(proof: PairingCrypto.proof("phone", key: key), phoneName: UIDevice.current.name))
+        if ex.macApproval != nil {
+            finishPairing()
+        } else {
+            pairingStep = .compare(code: code, macName: macName, waitingForMac: true)
+        }
     }
 
     func clearHistory() {
@@ -195,7 +214,7 @@ final class MacLink: NSObject, ObservableObject, CBCentralManagerDelegate, CBPer
         challenge = nil
         connected = false
         switch pairingStep {
-        case .exchanging?, .showCode?:
+        case .exchanging?, .compare?:
             failPairing("Lost the connection to the Mac. Try again.")
         default:
             break
@@ -242,32 +261,19 @@ final class MacLink: NSObject, ObservableObject, CBCentralManagerDelegate, CBPer
             ex.key = key
             ex.code = code
             exchange = ex
-            // Show the code for the user to type on the Mac, and prove to the Mac we hold the key.
-            pairingStep = .showCode(code)
-            write(.phoneConfirm(proof: PairingCrypto.proof("phone", key: key), phoneName: UIDevice.current.name))
+            // Both screens now show the code; the user compares them and presses Pair on both.
+            pairingStep = .compare(code: code, macName: p.name ?? "your Mac", waitingForMac: false)
 
         case .macConfirm(let proof, let pairingID, let macName):
-            // Sent only once the user typed our code on the Mac.
-            guard case .showCode? = pairingStep else { return }
+            // Sent when the user pressed Pair on the Mac.
+            guard case .compare? = pairingStep, ex.macApproval == nil else { return }
             guard let key = ex.key, PairingCrypto.checkProof(proof, role: "mac", key: key) else {
                 return failPairing("The Mac's confirmation didn't check out. Try again.")
             }
-            let mac = PairedMac(key: key.withUnsafeBytes { Data($0) }, pairingID: pairingID,
-                                macName: macName.isEmpty ? "Mac" : macName, pairedAt: Date())
-            do {
-                try PairedMacStore.save(mac)
-            } catch {
-                return failPairing("Could not save the pairing: \(error.localizedDescription)")
-            }
-            paired = mac
-            exchange = nil
-            pairingStep = .paired(mac.macName)
-            // Close the success screen by itself after a moment (unless the user already did).
-            DispatchQueue.main.asyncAfter(deadline: .now() + 2.5) { [weak self] in
-                if case .paired? = self?.pairingStep { self?.pairingStep = nil }
-            }
-            // This Mac just proved it holds the key: go straight to receiving notifications.
-            if let events = characteristics[Wire.eventsUUID] { p.setNotifyValue(true, for: events) }
+            ex.macApproval = (pairingID, macName)
+            exchange = ex
+            // Saved only once the user pressed Pair here too.
+            if ex.approved { finishPairing() }
 
         case .failed(let reason):
             if pairingStep == .exchanging, reason.contains("pairing mode") {
@@ -300,14 +306,38 @@ final class MacLink: NSObject, ObservableObject, CBCentralManagerDelegate, CBPer
     }
 
     private func handleVerification(_ message: PairMessage?, nonce: Data, from p: CBPeripheral) {
-        guard let paired, case .verified(let proof)? = message,
-              PairingCrypto.checkVerifyProof(proof, nonce: nonce, pairingKey: SymmetricKey(data: paired.key)) else {
+        guard let paired, case .verified(let proof, let macNonce)? = message,
+              PairingCrypto.checkVerifyProof(proof, role: "mac", nonce: nonce, pairingKey: SymmetricKey(data: paired.key)) else {
             // Another bleping Mac, one that no longer has our pairing, or an impostor.
             return skip(p, "(not our Mac)")
         }
         challenge = nil
         dbg("Mac verified")
+        // Now prove ourselves to the Mac; it sends events only to an iPhone that did.
+        write(.phoneVerified(proof: PairingCrypto.verifyProof("phone", nonce: macNonce, pairingKey: SymmetricKey(data: paired.key))))
         if let events = characteristics[Wire.eventsUUID] { p.setNotifyValue(true, for: events) }
+    }
+
+    /// Pair was pressed on both sides: save the pairing and start receiving notifications.
+    private func finishPairing() {
+        guard let ex = exchange, ex.approved, let key = ex.key, let approval = ex.macApproval else { return }
+        let mac = PairedMac(key: key.withUnsafeBytes { Data($0) }, pairingID: approval.pairingID,
+                            macName: approval.macName.isEmpty ? "Mac" : approval.macName, pairedAt: Date())
+        do {
+            try PairedMacStore.save(mac)
+        } catch {
+            write(.failed("The iPhone could not save the pairing"))
+            return failPairing("Could not save the pairing: \(error.localizedDescription)")
+        }
+        paired = mac
+        exchange = nil
+        pairingStep = .paired(mac.macName)
+        // Close the success screen by itself after a moment (unless the user already did).
+        DispatchQueue.main.asyncAfter(deadline: .now() + 2.5) { [weak self] in
+            if case .paired? = self?.pairingStep { self?.pairingStep = nil }
+        }
+        // This Mac proved it holds the key: go straight to receiving notifications.
+        if let peripheral, let events = characteristics[Wire.eventsUUID] { peripheral.setNotifyValue(true, for: events) }
     }
 
     private func failPairing(_ reason: String) {
@@ -328,7 +358,7 @@ final class MacLink: NSObject, ObservableObject, CBCentralManagerDelegate, CBPer
         }
         // Drop repeats (the Mac resends recent ones on reconnect) and anything stale.
         guard n.date > Date().addingTimeInterval(-Wire.replayWindow) else { return dbg("Event \(n.id) too old; dropped") }
-        guard markSeen(n.id) else { return dbg("Event \(n.id) already shown; dropped") }
+        guard markSeen(n) else { return dbg("Event \(n.id) already shown; dropped") }
         dbg("Event \(n.id) from \(n.app): showing notification")
         history.insert(ReceivedNotification(id: n.id, app: n.app, bundleID: n.bundleID, title: n.title, subtitle: n.subtitle, date: n.date),
                        at: 0)
@@ -356,15 +386,17 @@ final class MacLink: NSObject, ObservableObject, CBCentralManagerDelegate, CBPer
     }
 
     /// Records a notification ID; false if it was already seen. Persisted, so a relaunch
-    /// doesn't re-announce what the Mac replays.
-    private func markSeen(_ id: String) -> Bool {
+    /// doesn't re-announce what the Mac replays. Each ID is kept until its notification is too
+    /// old to be accepted anyway, even if the Mac's clock runs ahead of the iPhone's.
+    private func markSeen(_ n: MacNotification) -> Bool {
         let defaults = UserDefaults.standard
         let now = Date().timeIntervalSince1970
-        var seen = (defaults.dictionary(forKey: "seenNotifications") as? [String: Double] ?? [:])
-            .filter { now - $0.value < 2 * Wire.replayWindow }
-        guard seen[id] == nil else { return false }
-        seen[id] = now
-        defaults.set(seen, forKey: "seenNotifications")
+        defaults.removeObject(forKey: "seenNotifications")   // older format (time first seen)
+        var seen = (defaults.dictionary(forKey: "seenNotificationsUntil") as? [String: Double] ?? [:])
+            .filter { $0.value > now }
+        guard seen[n.id] == nil else { return false }
+        seen[n.id] = max(now, n.date.timeIntervalSince1970) + Wire.replayWindow
+        defaults.set(seen, forKey: "seenNotificationsUntil")
         return true
     }
 
@@ -453,7 +485,7 @@ final class MacLink: NSObject, ObservableObject, CBCentralManagerDelegate, CBPer
         if error != nil { return skip(p, "(subscribe failed)") }
         if c.uuid == Wire.pairingUUID, c.isNotifying, pairingStep == .searching, let exchange {
             pairingStep = .exchanging
-            write(.hello(phoneKey: exchange.phoneKey))
+            write(.hello(phoneKey: exchange.phoneKey, phoneName: UIDevice.current.name))
         } else if c.uuid == Wire.pairingUUID, c.isNotifying, paired != nil, exchange == nil, challenge == nil {
             startVerification(p)
         } else if c.uuid == Wire.eventsUUID, c.isNotifying {

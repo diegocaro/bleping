@@ -186,55 +186,37 @@ struct PairingBox: View {
             case .exchanging:
                 ProgressView().controlSize(.small)
                 Text("iPhone found. Connecting securely…")
-            case .enterCode(let phoneName, let error):
-                CodeEntry(phoneName: phoneName, error: error, engine: engine)
+            case .compare(let code, let phoneName, let waiting):
+                Text("Pair with “\(phoneName)”?").font(.headline).multilineTextAlignment(.center)
+                Text("Make sure it shows this code.")
+                    .foregroundStyle(.secondary)
+                Text(Engine.displayCode(code))
+                    .font(.system(size: 36, weight: .semibold, design: .monospaced))
+                if waiting {
+                    ProgressView().controlSize(.small)
+                    Text("Now tap **Pair** on your iPhone.").font(.callout)
+                    Button("Cancel") { engine.cancelPairing() }.controlSize(.small)
+                } else {
+                    HStack {
+                        Button("Cancel") { engine.cancelPairing() }
+                        Button("Pair") { engine.confirmPairing() }
+                            .keyboardShortcut(.defaultAction)
+                    }
+                }
             case .failed(let reason):
                 Image(systemName: "xmark.circle").font(.title).foregroundStyle(.red)
                 Text("Pairing failed").font(.headline)
                 Text(reason).font(.caption).foregroundStyle(.secondary).multilineTextAlignment(.center)
                 Button("Try Again") { engine.startPairing() }
             }
-            if engine.phone != nil || pairing != .waiting {
+            if case .compare = pairing {
+                // Its own Cancel is above.
+            } else if engine.phone != nil || pairing != .waiting {
                 Button("Cancel") { engine.cancelPairing() }.controlSize(.small)
             }
         }
         .frame(maxWidth: .infinity)
         .padding(.vertical, 8)
-    }
-}
-
-/// Where the user types the code the iPhone shows. Typing it here (not on the iPhone) is what
-/// stops another phone in range from pairing: it would show a code the user never sees.
-struct CodeEntry: View {
-    let phoneName: String
-    let error: String?
-    let engine: Engine
-    @State private var code = ""
-    @FocusState private var focused: Bool
-
-    var body: some View {
-        Text("Type the code shown on **\(phoneName)**")
-            .multilineTextAlignment(.center)
-        TextField("000000", text: $code)
-            .font(.system(size: 32, weight: .semibold, design: .monospaced))
-            .multilineTextAlignment(.center)
-            .textFieldStyle(.roundedBorder)
-            .frame(width: 180)
-            .focused($focused)
-            .onAppear { focused = true }
-            .onChange(of: code) { newValue in
-                let digits = String(newValue.filter(\.isNumber).prefix(6))
-                if digits != newValue { code = digits }
-                if digits.count == 6 { engine.submitCode(digits) }
-            }
-            // A wrong try clears the field for the next one.
-            .onChange(of: error) { _ in code = "" }
-        if let error {
-            Text(error).font(.caption).foregroundStyle(.red).multilineTextAlignment(.center)
-        } else {
-            Text("If you don't see this code on your iPhone, click Cancel.")
-                .font(.caption).foregroundStyle(.secondary).multilineTextAlignment(.center)
-        }
     }
 }
 

@@ -43,38 +43,42 @@ enum PairingStore {
 }
 
 /// The Mac's half of the pairing exchange (see Wire.swift for the steps).
-/// One iPhone at a time. The user types the code the iPhone shows; three wrong codes end that
-/// attempt, and an attempt that stalls times out, so no phone can hold pairing mode hostage.
+/// One iPhone at a time. Both screens show the code; the pairing is saved once the user pressed
+/// Pair on the Mac and the iPhone's Pair (with its proof) arrived. An attempt that stalls times
+/// out, so no phone can hold pairing mode hostage.
 final class PairingSession {
     private enum State {
         case waitingForPhone
-        case committed(central: CBCentral, phoneKey: Data, macPrivate: P256.KeyAgreement.PrivateKey, macNonce: Data)
-        /// Nonces swapped; waiting for the iPhone to prove it derived the same key.
-        case awaitingProof(central: CBCentral, key: SymmetricKey, code: String)
-        /// Waiting for the user to type, on the Mac, the code the iPhone shows.
-        case enteringCode(central: CBCentral, key: SymmetricKey, code: String, phoneName: String, wrongTries: Int)
+        case committed(central: CBCentral, phoneKey: Data, phoneName: String,
+                       macPrivate: P256.KeyAgreement.PrivateKey, macNonce: Data)
+        /// Both sides show `code`; waiting for Pair on the Mac (`macApproved`) and on the
+        /// iPhone (`phoneApproved`, set once its proof checked out).
+        case comparing(central: CBCentral, key: SymmetricKey, code: String, phoneName: String,
+                       macApproved: Bool, phoneApproved: Bool)
     }
 
     enum Progress {
         case phoneConnecting
-        /// Ask the user for the code shown on `phoneName`; `error` explains a wrong try.
-        case enterCode(phoneName: String, error: String?)
+        /// Show `code` and ask "Pair with `phoneName`?". `waitingForPhone`: the user already
+        /// pressed Pair on the Mac.
+        case compare(code: String, phoneName: String, waitingForPhone: Bool)
         case failed(String)
     }
 
-    static let maxWrongTries = 3
-    /// How long an iPhone may take to finish the key exchange, and the user to type the code.
-    static let exchangeTimeout: TimeInterval = 30, codeTimeout: TimeInterval = 180
+    /// How long an iPhone may take to finish the key exchange, and the user to press Pair.
+    static let exchangeTimeout: TimeInterval = 30, confirmTimeout: TimeInterval = 180
 
-    /// Steps the user should see (the code prompt, failures).
+    /// Steps the user should see (the code to compare, failures).
     var onProgress: ((Progress) -> Void)?
 
     private let peripheral: Peripheral
-    private let onPaired: (PairedPhone) -> Void
+    private let onPaired: (PairedPhone, CBCentral) -> Void
     private var state = State.waitingForPhone
     private var timeout: DispatchWorkItem?
+    /// Chosen up front so the Mac's Pair message can carry it before anything is saved.
+    private let pairingID = PairingCrypto.randomBytes(PairMessage.pairingIDLength)
 
-    init(peripheral: Peripheral, onPaired: @escaping (PairedPhone) -> Void) {
+    init(peripheral: Peripheral, onPaired: @escaping (PairedPhone, CBCentral) -> Void) {
         self.peripheral = peripheral
         self.onPaired = onPaired
     }
@@ -93,7 +97,7 @@ final class PairingSession {
             return
         }
         switch (message, state) {
-        case (.hello(let phoneKey), _):
+        case (.hello(let phoneKey, let name), _):
             // A new hello always (re)starts pairing, unless another iPhone is mid-way.
             if let busy = activeCentral, busy != central {
                 peripheral.sendPairing(.failed("Another iPhone is pairing with this Mac right now"), to: central)
@@ -105,14 +109,16 @@ final class PairingSession {
             let macPrivate = P256.KeyAgreement.PrivateKey()
             let macKey = macPrivate.publicKey.x963Representation
             let macNonce = PairingCrypto.randomBytes(PairMessage.nonceLength)
-            state = .committed(central: central, phoneKey: phoneKey, macPrivate: macPrivate, macNonce: macNonce)
-            armTimeout()
+            state = .committed(central: central, phoneKey: phoneKey, phoneName: Self.clean(name),
+                               macPrivate: macPrivate, macNonce: macNonce)
+            armTimeout(Self.exchangeTimeout)
             log("An iPhone is pairing…")
             onProgress?(.phoneConnecting)
             peripheral.sendPairing(.commit(macKey: macKey, commitment: PairingCrypto.commitment(
                 macKey: macKey, phoneKey: phoneKey, macNonce: macNonce)), to: central)
 
-        case (.phoneNonce(let phoneNonce), .committed(let owner, let phoneKey, let macPrivate, let macNonce)) where owner == central:
+        case (.phoneNonce(let phoneNonce), .committed(let owner, let phoneKey, let phoneName, let macPrivate, let macNonce))
+            where owner == central:
             let macKey = macPrivate.publicKey.x963Representation
             guard let phonePublic = try? P256.KeyAgreement.PublicKey(x963Representation: phoneKey),
                   let secret = try? macPrivate.sharedSecretFromKeyAgreement(with: phonePublic) else {
@@ -122,18 +128,23 @@ final class PairingSession {
                                                phoneNonce: phoneNonce, macNonce: macNonce)
             let code = PairingCrypto.code(phoneKey: phoneKey, macKey: macKey,
                                           phoneNonce: phoneNonce, macNonce: macNonce)
-            state = .awaitingProof(central: central, key: key, code: code)
+            state = .comparing(central: central, key: key, code: code, phoneName: phoneName,
+                               macApproved: false, phoneApproved: false)
+            armTimeout(Self.confirmTimeout)
             peripheral.sendPairing(.macNonce(macNonce), to: central)
+            onProgress?(.compare(code: code, phoneName: phoneName, waitingForPhone: false))
+            log("Pairing code:  \(PairingCrypto.display(code))  (check \"\(phoneName)\" shows the same, then Pair on both)",
+                personal: true)
 
-        case (.phoneConfirm(let proof, let name), .awaitingProof(let owner, let key, let code)) where owner == central:
+        case (.phoneConfirm(let proof, _), .comparing(let owner, let key, let code, let phoneName, let macApproved, _))
+            where owner == central:
             guard PairingCrypto.checkProof(proof, role: "phone", key: key) else {
                 return fail("The pairing check failed. Start pairing again on the iPhone.", to: central)
             }
-            let phoneName = Self.clean(name)
-            state = .enteringCode(central: central, key: key, code: code, phoneName: phoneName, wrongTries: 0)
-            armTimeout()
-            onProgress?(.enterCode(phoneName: phoneName, error: nil))
-            log("Type the 6-digit code shown on \"\(phoneName)\" and press Return.", personal: true)
+            log("Pair pressed on the iPhone")
+            state = .comparing(central: central, key: key, code: code, phoneName: phoneName,
+                               macApproved: macApproved, phoneApproved: true)
+            if macApproved { finish() }
 
         case (.failed(let reason), _):
             log("Pairing cancelled on the iPhone: \(reason)")
@@ -145,23 +156,30 @@ final class PairingSession {
         }
     }
 
-    /// The user typed a code on the Mac.
-    func submitCode(_ text: String) {
-        guard case .enteringCode(let central, let key, let code, let phoneName, let wrongTries) = state else { return }
-        guard text.filter(\.isNumber) == code else {
-            let tries = wrongTries + 1
-            if tries >= Self.maxWrongTries {
-                return fail("The wrong code was typed on the Mac \(tries) times. Start pairing again.", to: central)
-            }
-            log("Wrong pairing code (\(Self.maxWrongTries - tries) tries left)")
-            // The clock keeps running from the first prompt.
-            state = .enteringCode(central: central, key: key, code: code, phoneName: phoneName, wrongTries: tries)
-            onProgress?(.enterCode(phoneName: phoneName, error:
-                "That doesn't match the code on \(phoneName). \(Self.maxWrongTries - tries) tries left."))
-            return
+    /// The user pressed Pair on the Mac (the codes match).
+    func approve() {
+        guard case .comparing(let central, let key, let code, let phoneName, false, let phoneApproved) = state else { return }
+        state = .comparing(central: central, key: key, code: code, phoneName: phoneName,
+                           macApproved: true, phoneApproved: phoneApproved)
+        if phoneApproved {
+            finish()
+        } else {
+            peripheral.sendPairing(.macConfirm(proof: PairingCrypto.proof("mac", key: key),
+                                               pairingID: pairingID, macName: macName), to: central)
+            onProgress?(.compare(code: code, phoneName: phoneName, waitingForPhone: true))
         }
-        let paired = PairedPhone(key: key.withUnsafeBytes { Data($0) },
-                                 pairingID: PairingCrypto.randomBytes(PairMessage.pairingIDLength),
+    }
+
+    /// The user cancelled on the Mac: tell the iPhone, if one is pairing.
+    func cancel() {
+        if let central = activeCentral { peripheral.sendPairing(.failed("Cancelled on the Mac"), to: central) }
+        reset()
+    }
+
+    /// Pair was pressed on both sides: save, and tell the iPhone if it doesn't know yet.
+    private func finish() {
+        guard case .comparing(let central, let key, _, let phoneName, true, true) = state else { return }
+        let paired = PairedPhone(key: key.withUnsafeBytes { Data($0) }, pairingID: pairingID,
                                  phoneName: phoneName, pairedAt: Date())
         do {
             try PairingStore.save(paired)
@@ -169,17 +187,18 @@ final class PairingSession {
             return fail("The Mac could not save the pairing: \(error.localizedDescription)", to: central)
         }
         reset()
+        // The iPhone may have pressed Pair first; then it's still waiting for our confirmation.
+        // (Sending it twice is harmless: the iPhone ignores it once paired.)
         peripheral.sendPairing(.macConfirm(proof: PairingCrypto.proof("mac", key: key),
-                                           pairingID: paired.pairingID, macName: macName), to: central)
+                                           pairingID: pairingID, macName: macName), to: central)
         log("Paired with \"\(paired.phoneName)\" ✓", personal: true)
-        onPaired(paired)
+        onPaired(paired, central)
     }
 
     private var activeCentral: CBCentral? {
         switch state {
         case .waitingForPhone: return nil
-        case .committed(let central, _, _, _), .awaitingProof(let central, _, _),
-             .enteringCode(let central, _, _, _, _): return central
+        case .committed(let central, _, _, _, _), .comparing(let central, _, _, _, _, _): return central
         }
     }
 
@@ -190,15 +209,8 @@ final class PairingSession {
     }
 
     /// Starts the clock for the step just entered, so a stalled phone frees pairing mode.
-    private func armTimeout() {
+    private func armTimeout(_ seconds: TimeInterval) {
         timeout?.cancel()
-        timeout = nil
-        let seconds: TimeInterval
-        switch state {
-        case .waitingForPhone: return
-        case .committed, .awaitingProof: seconds = Self.exchangeTimeout
-        case .enteringCode: seconds = Self.codeTimeout
-        }
         let item = DispatchWorkItem { [weak self] in
             guard let self, let central = activeCentral else { return }
             fail("Pairing took too long. Start pairing again on the iPhone.", to: central)

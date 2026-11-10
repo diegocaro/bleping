@@ -6,8 +6,6 @@ import Foundation
 final class Peripheral: NSObject, CBPeripheralManagerDelegate {
     /// A pairing message arrived from an iPhone.
     var onPairingMessage: ((Data, CBCentral) -> Void)?
-    /// An iPhone subscribed to events (it has checked this is its Mac): time to replay.
-    var onEventsSubscribed: ((CBCentral) -> Void)?
     /// Bluetooth turned on/off or permission changed.
     var onStateChange: ((CBManagerState) -> Void)?
     /// An iPhone subscribed to or left the events characteristic.
@@ -20,13 +18,35 @@ final class Peripheral: NSObject, CBPeripheralManagerDelegate {
     /// Packets waiting for room in CoreBluetooth's send queue.
     private var outbox: [(packet: Data, characteristic: CBMutableCharacteristic, to: [CBCentral]?)] = []
     private var chunkTag: UInt8 = 0
+    /// iPhones that proved they hold the pairing key on this connection. Only these get events.
+    private var trusted: Set<UUID> = []
 
     override init() {
         super.init()
         manager = CBPeripheralManager(delegate: self, queue: .main)
     }
 
-    var connectedPhones: Int { eventsChar?.subscribedCentrals?.count ?? 0 }
+    /// Checked iPhones listening for events. Other devices in range don't count.
+    var connectedPhones: Int { phones.count }
+
+    private var phones: [CBCentral] {
+        (eventsChar?.subscribedCentrals ?? []).filter { trusted.contains($0.identifier) }
+    }
+
+    /// This iPhone proved it holds the pairing key: send it events from now on.
+    func trust(_ central: CBCentral) {
+        trusted.insert(central.identifier)
+        onSubscribersChanged?()
+    }
+
+    func isTrusted(_ central: CBCentral) -> Bool { trusted.contains(central.identifier) }
+
+    /// The pairing changed: every iPhone has to pass the check again.
+    func untrustAll() {
+        trusted.removeAll()
+        outbox.removeAll { $0.characteristic === eventsChar }
+        onSubscribersChanged?()
+    }
 
     func sendPairing(_ message: PairMessage, to central: CBCentral) {
         guard let pairingChar else { return }
@@ -34,18 +54,20 @@ final class Peripheral: NSObject, CBPeripheralManagerDelegate {
         flush()
     }
 
-    /// Sends one sealed event to every subscribed iPhone, or just to `central`.
+    /// Sends one sealed event to every checked iPhone, or just to `central` if it's checked.
+    /// Each gets chunks sized for its own connection, so one device can't shrink them for all.
     func sendEvent(_ sealed: Data, to central: CBCentral? = nil) {
         guard let eventsChar else { return }
-        let targets = central.map { [$0] } ?? eventsChar.subscribedCentrals ?? []
+        let targets = central.map { [$0].filter(isTrusted) } ?? phones
         guard !targets.isEmpty else { return }
-        let maxPacket = targets.map(\.maximumUpdateValueLength).min() ?? 20
         chunkTag &+= 1
-        guard let chunks = Chunker.split(sealed, tag: chunkTag, maxPacket: maxPacket) else {
-            log("Notification too large to send (\(sealed.count) bytes)")
-            return
+        for target in targets {
+            guard let chunks = Chunker.split(sealed, tag: chunkTag, maxPacket: target.maximumUpdateValueLength) else {
+                log("Notification too large to send (\(sealed.count) bytes)")
+                continue
+            }
+            for chunk in chunks { outbox.append((chunk, eventsChar, [target])) }
         }
-        for chunk in chunks { outbox.append((chunk, eventsChar, central.map { [$0] })) }
         flush()
     }
 
@@ -87,6 +109,7 @@ final class Peripheral: NSObject, CBPeripheralManagerDelegate {
             pairingChar = nil
             eventsChar = nil
             outbox.removeAll()
+            trusted.removeAll()
         }
         onStateChange?(peripheral.state)
         switch peripheral.state {
@@ -104,18 +127,16 @@ final class Peripheral: NSObject, CBPeripheralManagerDelegate {
             log("Could not set up the Bluetooth service: \(error.localizedDescription)")
             return
         }
-        // The name fits in the main advertising packet next to the 128-bit service UUID.
-        peripheral.startAdvertising([
-            CBAdvertisementDataLocalNameKey: Wire.advertisedName,
-            CBAdvertisementDataServiceUUIDsKey: [Wire.serviceUUID],
-        ])
+        // Only the service UUID, which the iPhone needs to find the Mac in the background. No
+        // name: there's no need to tell everyone nearby that this is a bleping Mac.
+        peripheral.startAdvertising([CBAdvertisementDataServiceUUIDsKey: [Wire.serviceUUID]])
     }
 
     func peripheralManagerDidStartAdvertising(_ peripheral: CBPeripheralManager, error: Error?) {
         if let error {
             log("Advertising failed: \(error.localizedDescription)")
         } else {
-            log("Visible to the iPhone app (advertising \"\(Wire.advertisedName)\")")
+            log("Visible to the iPhone app")
         }
     }
 
@@ -143,20 +164,26 @@ final class Peripheral: NSObject, CBPeripheralManagerDelegate {
 
     func peripheralManager(_ peripheral: CBPeripheralManager, central: CBCentral,
                            didSubscribeTo characteristic: CBCharacteristic) {
-        if characteristic.uuid == Wire.pairingUUID { log("An iPhone connected to pair") }
+        if characteristic.uuid == Wire.pairingUUID { log("An iPhone connected") }
         if characteristic.uuid == Wire.eventsUUID {
-            log("iPhone connected (\(connectedPhones) subscribed\(characteristic === eventsChar ? "" : ", to an old copy of the service!"))")
-            onEventsSubscribed?(central)
+            if isTrusted(central) {
+                log("iPhone connected (\(connectedPhones) listening\(characteristic === eventsChar ? "" : ", to an old copy of the service!"))")
+            } else {
+                log("A device that didn't pass the check subscribed; it gets nothing")
+            }
             onSubscribersChanged?()
         }
     }
 
     func peripheralManager(_ peripheral: CBPeripheralManager, central: CBCentral,
                            didUnsubscribeFrom characteristic: CBCharacteristic) {
-        if characteristic.uuid == Wire.eventsUUID {
-            log("iPhone disconnected (\(connectedPhones) subscribed)")
-            onSubscribersChanged?()
+        if characteristic.uuid == Wire.eventsUUID, isTrusted(central) {
+            trusted.remove(central.identifier)
+            log("iPhone disconnected (\(connectedPhones) listening)")
         }
+        // Gone from either characteristic means gone: it has to pass the check again.
+        trusted.remove(central.identifier)
+        onSubscribersChanged?()
         outbox.removeAll { $0.to?.contains(central) == true }
     }
 

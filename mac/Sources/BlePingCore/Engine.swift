@@ -30,9 +30,10 @@ public final class Engine {
         case waiting
         /// The iPhone connected; keys are being exchanged.
         case exchanging
-        /// Ask the user to type the code shown on the iPhone named `phoneName`. `error` says why
-        /// the last try was wrong.
-        case enterCode(phoneName: String, error: String?)
+        /// Show `code` and ask "Pair with `phoneName`?": the user checks the iPhone shows the
+        /// same code and presses Pair. `waitingForPhone`: Pair was pressed on the Mac, now
+        /// waiting for the iPhone's.
+        case compare(code: String, phoneName: String, waitingForPhone: Bool)
         case failed(String)
     }
 
@@ -90,6 +91,8 @@ public final class Engine {
     private var paired: PairedPhone?
     private var eventKey: SymmetricKey?
     private var session: PairingSession?
+    /// The nonce sent to each iPhone that's partway through the reconnect check.
+    private var challenges: [UUID: Data] = [:]
     private var watcher: NotificationWatcher?
     private var timer: DispatchSourceTimer?
     /// What gets replayed to an iPhone that reconnects.
@@ -100,6 +103,9 @@ public final class Engine {
     public init(options: Options = Options()) {
         self.options = options
     }
+
+    /// "482 913" for "482913".
+    public static func displayCode(_ code: String) -> String { PairingCrypto.display(code) }
 
     /// Where the pairing key is kept.
     public static var pairingFile: URL { PairingStore.url }
@@ -131,17 +137,27 @@ public final class Engine {
         peripheral.onPairingMessage = { [weak self] data, central in
             guard let self else { return }
             if case .catchUp? = PairMessage(data) {
+                guard peripheral.isTrusted(central) else { return log("Ignored a catch-up request from a device that didn't pass the check") }
                 log(options.catchUp ? "iPhone asked for missed notifications"
                                     : "iPhone asked for missed notifications (ignored: sending missed notifications is off)")
                 replay(to: central)
             } else if case .verify(let nonce)? = PairMessage(data) {
-                // The iPhone checks it found *its* Mac before trusting the connection.
+                // The iPhone checks it found *its* Mac, and we check it's *our* iPhone.
                 if let paired {
+                    let macNonce = PairingCrypto.randomBytes(PairMessage.nonceLength)
+                    if challenges.count >= 20 { challenges = [:] }   // devices that never answered
+                    challenges[central.identifier] = macNonce
                     peripheral.sendPairing(.verified(proof: PairingCrypto.verifyProof(
-                        nonce: nonce, pairingKey: paired.pairingKey)), to: central)
+                        "mac", nonce: nonce, pairingKey: paired.pairingKey), macNonce: macNonce), to: central)
                 } else {
                     peripheral.sendPairing(.failed("This Mac isn't paired with an iPhone."), to: central)
                 }
+            } else if case .phoneVerified(let proof)? = PairMessage(data) {
+                guard let paired, let macNonce = challenges.removeValue(forKey: central.identifier),
+                      PairingCrypto.checkVerifyProof(proof, role: "phone", nonce: macNonce, pairingKey: paired.pairingKey) else {
+                    return log("A device failed the reconnect check; it gets nothing")
+                }
+                peripheral.trust(central)
             } else if let session {
                 session.handle(data, from: central)
             } else if case .hello? = PairMessage(data) {
@@ -157,12 +173,14 @@ public final class Engine {
     public func startPairing() {
         // An iPhone is already exchanging keys or showing the code: don't throw that away.
         switch pairing {
-        case .exchanging?, .enterCode?: return
+        case .exchanging?, .compare?: return
         default: break
         }
-        let session = PairingSession(peripheral: peripheral) { [weak self] phone in
+        let session = PairingSession(peripheral: peripheral) { [weak self] phone, central in
             guard let self else { return }
             use(phone)
+            // It just proved itself by pairing, and goes straight to listening for events.
+            peripheral.trust(central)
             self.session = nil
             pairing = nil
             changed()
@@ -171,7 +189,8 @@ public final class Engine {
             guard let self else { return }
             switch progress {
             case .phoneConnecting: pairing = .exchanging
-            case .enterCode(let name, let error): pairing = .enterCode(phoneName: name, error: error)
+            case .compare(let code, let name, let waiting):
+                pairing = .compare(code: code, phoneName: name, waitingForPhone: waiting)
             case .failed(let reason): pairing = .failed(reason)
             }
             changed()
@@ -180,17 +199,18 @@ public final class Engine {
         pairing = .waiting
         log("""
             Pairing mode. On your iPhone, open bleping and tap "Pair with Mac".
-              Then type the 6-digit code it shows here.
+              Both will show a 6-digit code; if they match, pair on both.
             """)
         changed()
     }
 
-    /// The user typed the code shown on the iPhone.
-    public func submitCode(_ code: String) {
-        session?.submitCode(code)
+    /// The user pressed Pair on the Mac: the code matches the iPhone's.
+    public func confirmPairing() {
+        session?.approve()
     }
 
     public func cancelPairing() {
+        session?.cancel()
         session = nil
         pairing = nil
         changed()
@@ -209,6 +229,8 @@ public final class Engine {
 
     private func use(_ phone: PairedPhone?) {
         paired = phone
+        challenges = [:]
+        peripheral.untrustAll()
         self.phone = phone.map { Phone(name: $0.phoneName, pairedAt: $0.pairedAt) }
         eventKey = phone.map { EventCrypto.eventKey(pairingKey: $0.pairingKey) }
     }

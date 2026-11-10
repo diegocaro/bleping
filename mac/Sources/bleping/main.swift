@@ -21,7 +21,7 @@ struct Options {
         usage: bleping [pair | unpair] [options]
 
           bleping            forward Mac notifications to the paired iPhone
-          bleping pair       pair with the iPhone app (type the code it shows), then keep forwarding
+          bleping pair       pair with the iPhone app (compare a 6-digit code), then keep forwarding
           bleping unpair     forget the paired iPhone
 
           --interval SEC     how often to check for new notifications (default 1)
@@ -94,7 +94,16 @@ if options.command == .pair {
     printLog("No iPhone paired yet.")
     engine.startPairing()
 }
-// While pairing, each line typed in the terminal is a try at the code the iPhone shows.
+// While pairing, the terminal asks whether the codes match: y pairs, n cancels.
+var asked: String?
+let previousOnChange = engine.onChange
+engine.onChange = {
+    previousOnChange?()
+    if case .compare(let code, let name, false)? = engine.pairing, asked != code {
+        asked = code
+        printLog("Does \"\(name)\" show \(Engine.displayCode(code))? Type y and Return to pair, n to cancel.")
+    }
+}
 var typed = Data()
 FileHandle.standardInput.readabilityHandler = { handle in
     let chunk = handle.availableData
@@ -107,7 +116,14 @@ FileHandle.standardInput.readabilityHandler = { handle in
         while let newline = typed.firstIndex(of: UInt8(ascii: "\n")) {
             let line = String(decoding: typed[..<newline], as: UTF8.self)
             typed = Data(typed[typed.index(after: newline)...])
-            if case .enterCode? = engine.pairing { engine.submitCode(line) }
+            guard case .compare(_, _, false)? = engine.pairing else { continue }
+            switch line.trimmingCharacters(in: .whitespaces).lowercased() {
+            case "y", "yes": engine.confirmPairing()
+            case "n", "no":
+                engine.cancelPairing()
+                printLog("Pairing cancelled. Run `bleping pair` to try again.")
+            default: printLog("Type y to pair or n to cancel.")
+            }
         }
     }
 }
