@@ -45,6 +45,7 @@ mac/Sources/AltiroCore/   shared Mac logic: Bluetooth, pairing, notification wat
 mac/Sources/altiro/       the command-line tool
 mac/App/                   the menu bar app (XcodeGen project)
 ios/                       the iPhone app (XcodeGen project)
+tools/make-icons.swift      draws the app icon and writes both asset catalogs
 ```
 
 ## Mac menu bar app
