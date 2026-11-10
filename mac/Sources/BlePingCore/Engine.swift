@@ -132,6 +132,8 @@ public final class Engine {
         peripheral.onPairingMessage = { [weak self] data, central in
             guard let self else { return }
             if case .catchUp? = PairMessage(data) {
+                log(options.catchUp ? "iPhone asked for missed notifications"
+                                    : "iPhone asked for missed notifications (ignored: sending missed notifications is off)")
                 replay(to: central)
             } else if let session {
                 session.handle(data, from: central)

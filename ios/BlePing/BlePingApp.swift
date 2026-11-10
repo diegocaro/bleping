@@ -292,7 +292,7 @@ struct SettingsView: View {
                 } header: {
                     Text("Troubleshooting")
                 } footer: {
-                    Text("Shows what the Bluetooth connection is doing on the main screen and while pairing.")
+                    Text("Shows connection, pairing and notification events as they happen, on the main screen and while pairing.")
                 }
             }
             .navigationTitle("Settings")

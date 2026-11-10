@@ -18,7 +18,7 @@ struct BlePingMacApp: App {
             SettingsView(model: model, engine: model.engine)
         }
 
-        Window("bleping Log", id: "log") {
+        Window("Bluetooth Log", id: "log") {
             LogView(model: model)
         }
         .defaultSize(width: 640, height: 420)
@@ -474,7 +474,7 @@ struct AdvancedSettings: View {
 
     var body: some View {
         Form {
-            Section {
+            Section("Troubleshooting") {
                 LabeledContent {
                     Button("Send Test") { sendTest() }
                         .disabled(engine.phone == nil || testing)
@@ -499,8 +499,8 @@ struct AdvancedSettings: View {
                 LabeledContent {
                     Button("Open Log") { WindowOpener(openWindow: openWindow)("log") }
                 } label: {
-                    Text("Log")
-                    Text("What bleping is doing, for troubleshooting.")
+                    Text("Bluetooth log")
+                    Text("Connection, pairing and notification events as they happen.")
                 }
             }
         }
