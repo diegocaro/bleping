@@ -26,8 +26,8 @@ final class AppModel: ObservableObject {
         }
         engine.options.catchUp = catchUp
         engine.start()
-        // First launch: nothing paired yet, so be ready to pair straight away.
-        if engine.phone == nil { engine.startPairing() }
+        // Pairing mode starts only when the user clicks Pair iPhone…, never by itself, so the Mac
+        // isn't listening for any phone in range without the user knowing.
     }
 
     private static let logger = Logger(subsystem: "dev.bleping.macapp", category: "engine")

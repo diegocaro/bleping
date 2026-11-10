@@ -183,6 +183,8 @@ struct PairingBox: View {
                 ProgressView().controlSize(.small)
                 Text("On your iPhone, open bleping and tap **Pair with Mac**.")
                     .multilineTextAlignment(.center)
+                Text("Pairing stays open for \(Int(Engine.pairingModeDuration / 60)) minutes.")
+                    .font(.caption).foregroundStyle(.secondary)
             case .exchanging:
                 ProgressView().controlSize(.small)
                 Text("iPhone found. Connecting securely…")

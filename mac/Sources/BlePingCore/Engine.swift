@@ -93,6 +93,10 @@ public final class Engine {
     private var paired: PairedPhone?
     private var eventKey: SymmetricKey?
     private var session: PairingSession?
+    /// Ends pairing mode if nothing paired in time, so the Mac doesn't keep listening for any phone.
+    private var pairingDeadline: DispatchWorkItem?
+    /// How long pairing mode stays open.
+    public static let pairingModeDuration: TimeInterval = 5 * 60
     /// The nonce sent to each iPhone that's partway through the reconnect check.
     private var challenges: [UUID: Data] = [:]
     private var watcher: NotificationWatcher?
@@ -190,9 +194,7 @@ public final class Engine {
             use(phone)
             // It just proved itself by pairing, and goes straight to listening for events.
             peripheral.trust(central)
-            self.session = nil
-            pairing = nil
-            changed()
+            endPairingMode()
         }
         session.onProgress = { [weak self] progress in
             guard let self else { return }
@@ -207,9 +209,37 @@ public final class Engine {
         self.session = session
         pairing = .waiting
         log("""
-            Pairing mode. On your iPhone, open bleping and tap "Pair with Mac".
+            Pairing mode for the next \(Int(Self.pairingModeDuration / 60)) minutes. On your iPhone, open bleping and tap "Pair with Mac".
               Both will show a 6-digit code; if they match, pair on both.
             """)
+        scheduleEndOfPairingMode(after: Self.pairingModeDuration)
+        changed()
+    }
+
+    /// Closes pairing mode when time is up, unless an iPhone is pairing right now: then it waits
+    /// for that attempt (which has its own time limits) to finish.
+    private func scheduleEndOfPairingMode(after seconds: TimeInterval) {
+        pairingDeadline?.cancel()
+        let item = DispatchWorkItem { [weak self] in
+            guard let self, session != nil else { return }
+            switch pairing {
+            case .exchanging?, .compare?:
+                scheduleEndOfPairingMode(after: 15)
+            default:
+                session?.cancel()
+                log("Pairing mode ended after \(Int(Self.pairingModeDuration / 60)) minutes. Start pairing again to pair an iPhone.")
+                endPairingMode()
+            }
+        }
+        pairingDeadline = item
+        DispatchQueue.main.asyncAfter(deadline: .now() + seconds, execute: item)
+    }
+
+    private func endPairingMode() {
+        pairingDeadline?.cancel()
+        pairingDeadline = nil
+        session = nil
+        pairing = nil
         changed()
     }
 
@@ -220,9 +250,7 @@ public final class Engine {
 
     public func cancelPairing() {
         session?.cancel()
-        session = nil
-        pairing = nil
-        changed()
+        endPairingMode()
     }
 
     public func unpair() {
