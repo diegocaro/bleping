@@ -61,8 +61,10 @@ final class MacLink: NSObject, ObservableObject, CBCentralManagerDelegate, CBPer
     private var central: CBCentralManager?
     private var peripheral: CBPeripheral?
     private var characteristics: [CBUUID: CBCharacteristic] = [:]
-    /// Other bleping Macs (not ours, or not in pairing mode), skipped for a minute.
+    /// Macs to ignore until the given time: not ours, or not in pairing mode yet.
     private var skipped: [UUID: Date] = [:]
+    /// While pairing: a Mac was found but isn't in pairing mode yet ("Found X. Click Pair…").
+    @Published private(set) var pairingHint: String?
     private let reassembler = Reassembler()
     private var exchange: Exchange?
 
@@ -98,11 +100,15 @@ final class MacLink: NSObject, ObservableObject, CBCentralManagerDelegate, CBPer
         skipped = [:]
         exchange = Exchange()
         codeError = nil
+        pairingHint = nil
         pairingStep = .searching
         scan()
     }
 
     func cancelPairing() {
+        // Nothing to cancel. The sheet calls this again when it finishes closing, after the
+        // success screen already cleared the step; disconnecting here dropped the new link.
+        guard pairingStep != nil else { return }
         // Closing the success screen: keep the new connection.
         if case .paired? = pairingStep {
             pairingStep = nil
@@ -162,11 +168,18 @@ final class MacLink: NSObject, ObservableObject, CBCentralManagerDelegate, CBPer
     }
 
     /// Not the Mac we want: drop it and keep looking.
-    private func skip(_ p: CBPeripheral, _ why: String = "") {
-        dbg("Skipping \(p.name ?? p.identifier.uuidString.prefix(8).description) \(why)")
-        skipped[p.identifier] = Date()
+    private func skip(_ p: CBPeripheral, _ why: String = "", for seconds: TimeInterval = 60) {
+        dbg("Skipping \(p.name ?? p.identifier.uuidString.prefix(8).description) for \(Int(seconds)) s \(why)")
+        skipped[p.identifier] = Date().addingTimeInterval(seconds)
         disconnect()
         scan()
+        // iOS reports each device only once per scan, so restart the scan once the wait is
+        // over; otherwise a skipped Mac would never be noticed again.
+        DispatchQueue.main.asyncAfter(deadline: .now() + seconds + 0.2) { [weak self] in
+            guard let self, peripheral == nil, wantsConnection else { return }
+            central?.stopScan()
+            scan()
+        }
     }
 
     private func lost(_ p: CBPeripheral, _ error: Error? = nil) {
@@ -197,6 +210,7 @@ final class MacLink: NSObject, ObservableObject, CBCentralManagerDelegate, CBPer
         guard var ex = exchange, let message else { return }
         switch message {
         case .commit(let macKey, let commitment):
+            pairingHint = nil
             guard pairingStep == .exchanging else { return }
             ex.macKey = macKey
             ex.commitment = commitment
@@ -242,10 +256,12 @@ final class MacLink: NSObject, ObservableObject, CBCentralManagerDelegate, CBPer
 
         case .failed(let reason):
             if pairingStep == .exchanging, reason.contains("pairing mode") {
-                // Another bleping Mac that isn't pairing. Keep looking for the one that is.
+                // The Mac isn't in pairing mode (yet): the user may tap Pair on the iPhone first.
+                // Try again shortly rather than giving up on it.
+                pairingHint = "Found \(p.name ?? "a Mac"). Click Pair iPhone… in bleping on your Mac."
                 pairingStep = .searching
                 exchange = Exchange()
-                skip(p)
+                skip(p, "(not in pairing mode yet)", for: 2)
             } else {
                 failPairing(reason)
             }
@@ -348,7 +364,7 @@ final class MacLink: NSObject, ObservableObject, CBCentralManagerDelegate, CBPer
 
     func centralManager(_ central: CBCentralManager, didDiscover p: CBPeripheral,
                         advertisementData: [String: Any], rssi RSSI: NSNumber) {
-        skipped = skipped.filter { Date().timeIntervalSince($0.value) < 60 }
+        skipped = skipped.filter { $0.value > Date() }
         dbg("Found \(p.name ?? "?") RSSI \(RSSI)\(skipped[p.identifier] != nil ? " (skipped recently)" : "")")
         guard peripheral == nil, skipped[p.identifier] == nil else { return }
         dbg("Connecting…")

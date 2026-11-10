@@ -349,10 +349,17 @@ struct PairingView: View {
                     }
                 case .searching?:
                     StepIcon(symbol: "magnifyingglass")
-                    Text("Looking for your Mac…").font(.title3.weight(.semibold))
-                    Text("On your Mac, open bleping and click **Pair iPhone**. Keep your iPhone close to it.")
-                        .multilineTextAlignment(.center)
-                        .foregroundStyle(.secondary)
+                    if let hint = link.pairingHint {
+                        Text("Waiting for your Mac…").font(.title3.weight(.semibold))
+                        Text(hint)
+                            .multilineTextAlignment(.center)
+                            .foregroundStyle(.secondary)
+                    } else {
+                        Text("Looking for your Mac…").font(.title3.weight(.semibold))
+                        Text("On your Mac, open bleping and click **Pair iPhone…**. Keep your iPhone close to it.")
+                            .multilineTextAlignment(.center)
+                            .foregroundStyle(.secondary)
+                    }
                     ProgressView()
                 case .exchanging?:
                     StepIcon(symbol: "lock")
