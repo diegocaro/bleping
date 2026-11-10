@@ -22,9 +22,11 @@ targets:
         GENERATE_INFOPLIST_FILE: YES
         DEVELOPMENT_TEAM: 9DVD654W58
         CODE_SIGN_STYLE: Automatic
-        # Not sandboxed: it has to read Notification Center's database (with Full Disk Access).
+        # Not sandboxed: it has to read Notification Center's database (with Full Disk Access),
+        # so it's distributed outside the Mac App Store, signed with Developer ID and notarized.
         ENABLE_APP_SANDBOX: NO
-        ENABLE_HARDENED_RUNTIME: NO
+        # Required for notarization.
+        ENABLE_HARDENED_RUNTIME: YES
     info:
       path: BlePingMac/Info.plist
       properties:

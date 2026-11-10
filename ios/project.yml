@@ -35,3 +35,7 @@ targets:
         # Receiving the Mac's notifications in the background is the app's core feature
         # (see docs/app-review-notes.md).
         UIBackgroundModes: [bluetooth-central]
+        # Export compliance: the only encryption is Apple's own CryptoKit (part of iOS), used to
+        # protect the user's notifications between their own devices. App Store Connect treats
+        # encryption within Apple's operating system as exempt. Confirm this when submitting.
+        ITSAppUsesNonExemptEncryption: false
