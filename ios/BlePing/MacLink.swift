@@ -130,6 +130,10 @@ final class MacLink: NSObject, ObservableObject, CBCentralManagerDelegate, CBPer
         history = []
     }
 
+    func removeFromHistory(_ id: String) {
+        history.removeAll { $0.id == id }
+    }
+
     func unpair() {
         PairedMacStore.delete()
         paired = nil

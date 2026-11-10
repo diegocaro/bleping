@@ -69,6 +69,7 @@ struct ContentView: View {
     @ObservedObject private var notifications = NotificationAccess.shared
     @AppStorage("showBluetoothLog") private var showLog = false
     @State private var showSettings = false
+    @State private var confirmClear = false
     @Environment(\.scenePhase) private var scenePhase
 
     var body: some View {
@@ -89,19 +90,20 @@ struct ContentView: View {
                         } else {
                             // Re-render every 30 s so "2 min ago" stays current.
                             TimelineView(.periodic(from: .now, by: 30)) { context in
-                                ForEach(link.history) { NotificationRow(notification: $0, now: context.date) }
+                                ForEach(link.history) { notification in
+                                    NotificationRow(notification: notification, now: context.date)
+                                        .swipeActions {
+                                            Button(role: .destructive) {
+                                                withAnimation { link.removeFromHistory(notification.id) }
+                                            } label: {
+                                                Label("Delete", systemImage: "trash")
+                                            }
+                                        }
+                                }
                             }
                         }
                     } header: {
-                        HStack {
-                            Text("Notifications")
-                            Spacer()
-                            if !link.history.isEmpty {
-                                Button("Clear") { link.clearHistory() }
-                                    .font(.footnote)
-                                    .textCase(nil)
-                            }
-                        }
+                        Text("Notifications")
                     }
                 }
 
@@ -111,10 +113,24 @@ struct ContentView: View {
             }
             .navigationTitle("bleping")
             .toolbar {
-                ToolbarItem(placement: .primaryAction) {
+                ToolbarItemGroup(placement: .primaryAction) {
+                    if link.paired != nil {
+                        Menu {
+                            Button("Clear All…", systemImage: "trash", role: .destructive) { confirmClear = true }
+                                .disabled(link.history.isEmpty)
+                        } label: {
+                            Image(systemName: "ellipsis.circle")
+                        }
+                        .accessibilityLabel("More")
+                    }
                     Button { showSettings = true } label: { Image(systemName: "gearshape") }
                         .accessibilityLabel("Settings")
                 }
+            }
+            .confirmationDialog("Clear all notifications?", isPresented: $confirmClear, titleVisibility: .visible) {
+                Button("Clear All", role: .destructive) { withAnimation { link.clearHistory() } }
+            } message: {
+                Text("This only removes them from this list. Notifications already on your Lock Screen stay there.")
             }
             .sheet(isPresented: $showSettings) {
                 SettingsView(link: link)
