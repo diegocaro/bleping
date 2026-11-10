@@ -3,6 +3,7 @@
 Shows your Mac's notifications on your iPhone over Bluetooth LE. The iPhone app pairs with the Mac
 once using a 6-digit code, stays connected, and shows each notification as "Mail — Ana García".
 Only the app name and the notification's title are sent, encrypted. The message body never leaves the Mac.
+With **Send only the app name** on, the title stays on the Mac too.
 
 ```
 Mail notification ─▶ usernoted DB ─▶ Altiro (Mac) ══ encrypted BLE ══▶ Altiro (iPhone) ─▶ local notification
@@ -62,6 +63,7 @@ It lives in the menu bar (no Dock icon). The panel shows the connection, the pai
 compare while pairing, and the last notifications (with their app icons) and whether each reached the iPhone.
 Settings (the gear button) has pairing and unpairing, **Send missed notifications** (turn it off to
 skip notifications that arrive while the iPhone is away instead of sending them when it reconnects),
+**Send only the app name** (off by default; the iPhone then shows "Mail" but not who it's from),
 Open at Login, Send Test and the log. Allow Bluetooth when asked and turn on Full Disk Access
 for **Altiro** (the panel links to the setting). Set your own `DEVELOPMENT_TEAM` in
 `mac/App/project.yml`.
@@ -95,6 +97,7 @@ altiro unpair     forget the paired iPhone
 --only IDS         only these bundle IDs, comma-separated, e.g. com.apple.mail,com.apple.MobileSMS
 --ignore IDS       skip these bundle IDs
 --no-catch-up      don't resend missed notifications when the iPhone reconnects
+--app-name-only    send only the app's name, never the notification's title or subtitle
 --test             send a test notification at startup
 ```
 

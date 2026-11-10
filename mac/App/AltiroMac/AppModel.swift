@@ -25,6 +25,7 @@ final class AppModel: ObservableObject {
             MainActor.assumeIsolated { self?.appendLog(line, personal: personal) }
         }
         engine.options.catchUp = catchUp
+        engine.options.appNameOnly = appNameOnly
         engine.start()
         // Pairing mode starts only when the user clicks Pair iPhone…, never by itself, so the Mac
         // isn't listening for any phone in range without the user knowing.
@@ -80,6 +81,11 @@ final class AppModel: ObservableObject {
     /// Resend missed notifications when the iPhone reconnects. Saved across launches.
     @AppStorage("catchUp") var catchUp = true {
         didSet { engine.options.catchUp = catchUp }
+    }
+
+    /// Send only each notification's app name, never its title or subtitle. Saved across launches.
+    @AppStorage("appNameOnly") var appNameOnly = false {
+        didSet { engine.options.appNameOnly = appNameOnly }
     }
 
     // MARK: Actions

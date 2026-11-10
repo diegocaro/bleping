@@ -17,6 +17,9 @@ public final class Engine {
         /// Keep the last hour's notifications and resend them when the iPhone reconnects.
         /// When off, notifications that arrive while the iPhone is away are skipped.
         public var catchUp = true
+        /// Send only the app's name: the iPhone shows "Mail" and "New notification on your Mac", and
+        /// the notification's title and subtitle never leave the Mac. Off by default.
+        public var appNameOnly = false
         /// Where the pairing key is kept: the Keychain (the menu bar app) or a file (the CLI).
         public var storage = PairingStorage.keychain
 
@@ -86,7 +89,11 @@ public final class Engine {
     }
 
     public var options: Options {
-        didSet { if !options.catchUp { recent.removeAll() } }
+        didSet {
+            if !options.catchUp { recent.removeAll() }
+            // What's waiting to be resent must not carry text the user just chose to keep on the Mac.
+            if options.appNameOnly { recent = recent.map(\.appNameOnly) }
+        }
     }
 
     private let peripheral = Peripheral()
@@ -322,17 +329,20 @@ public final class Engine {
     }
 
     private func send(_ notification: MacNotification) {
+        // The Mac's own list and log keep the full text; only what goes to the iPhone is stripped.
+        let outgoing = options.appNameOnly ? notification.appNameOnly : notification
         if options.catchUp {
-            recent.append(notification)
+            recent.append(outgoing)
             prune()
         }
         let text = [notification.title, notification.subtitle].compactMap { $0 }.map { "\"\($0)\"" }
         let describe = notification.app + (text.isEmpty ? "" : ": " + text.joined(separator: " · "))
+            + (options.appNameOnly ? " (app name only)" : "")
         let delivery: Delivery
         if let eventKey {
             if peripheral.connectedPhones > 0 {
                 do {
-                    peripheral.sendEvent(try EventCrypto.seal(notification, key: eventKey))
+                    peripheral.sendEvent(try EventCrypto.seal(outgoing, key: eventKey))
                     log("\(describe) → sent to iPhone (encrypted)", personal: true)
                     delivery = .sent
                 } catch {
@@ -387,6 +397,13 @@ public final class Engine {
 
     private func changed() {
         onChange?()
+    }
+}
+
+private extension MacNotification {
+    /// The same notification without its title and subtitle.
+    var appNameOnly: MacNotification {
+        MacNotification(id: id, app: app, bundleID: bundleID, title: nil, subtitle: nil, date: date)
     }
 }
 

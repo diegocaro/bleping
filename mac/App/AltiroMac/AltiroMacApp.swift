@@ -414,6 +414,12 @@ struct GeneralSettings: View {
                     Text("When your iPhone reconnects, send it the notifications from the last hour it missed. When off, notifications that arrive while it's away are skipped.")
                 }
             }
+            Section {
+                Toggle(isOn: $model.appNameOnly) {
+                    Text("Send only the app name")
+                    Text("Your iPhone shows which app has a new notification, like Mail or Teams, but not who it's from or what it's about. Titles and subtitles stay on this Mac.")
+                }
+            }
         }
         .formStyle(.grouped)
         .fixedSize(horizontal: false, vertical: true)

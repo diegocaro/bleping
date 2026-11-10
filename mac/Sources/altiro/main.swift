@@ -33,6 +33,7 @@ struct Options {
           --only IDS         comma-separated bundle IDs to forward (default: all)
           --ignore IDS       comma-separated bundle IDs to skip
           --no-catch-up      don't resend missed notifications when the iPhone reconnects
+          --app-name-only    send only the app's name, never the notification's title or subtitle
           --test             send a test notification at startup
           -h, --help         show this help
 
@@ -60,6 +61,7 @@ struct Options {
             case "--only": o.engine.only = ids(value(arg))
             case "--ignore": o.engine.ignore = ids(value(arg))
             case "--no-catch-up": o.engine.catchUp = false
+            case "--app-name-only": o.engine.appNameOnly = true
             case "--test": o.test = true
             case "-h", "--help": print(usage); exit(0)
             default: fail("unknown option \(arg)")
