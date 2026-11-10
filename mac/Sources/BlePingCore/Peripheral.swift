@@ -12,8 +12,6 @@ final class Peripheral: NSObject, CBPeripheralManagerDelegate {
     var onStateChange: ((CBManagerState) -> Void)?
     /// An iPhone subscribed to or left the events characteristic.
     var onSubscribersChanged: (() -> Void)?
-    /// Served on the pairing-ID characteristic. Empty when nothing is paired.
-    var pairingID = Data()
 
     private var manager: CBPeripheralManager!
     private var pairingChar: CBMutableCharacteristic?
@@ -67,10 +65,8 @@ final class Peripheral: NSObject, CBPeripheralManagerDelegate {
                                               value: nil, permissions: [.writeable])
         let events = CBMutableCharacteristic(type: Wire.eventsUUID, properties: [.notify],
                                              value: nil, permissions: [])
-        let id = CBMutableCharacteristic(type: Wire.pairingIDUUID, properties: [.read],
-                                         value: nil, permissions: [.readable])
         let service = CBMutableService(type: Wire.serviceUUID, primary: true)
-        service.characteristics = [pairing, events, id]
+        service.characteristics = [pairing, events]
         pairingChar = pairing
         eventsChar = events
         // macOS can keep a published service across a Bluetooth off/on. Adding ours again
@@ -124,16 +120,8 @@ final class Peripheral: NSObject, CBPeripheralManagerDelegate {
     }
 
     func peripheralManager(_ peripheral: CBPeripheralManager, didReceiveRead request: CBATTRequest) {
-        guard request.characteristic.uuid == Wire.pairingIDUUID else {
-            peripheral.respond(to: request, withResult: .requestNotSupported)
-            return
-        }
-        guard request.offset <= pairingID.count else {
-            peripheral.respond(to: request, withResult: .invalidOffset)
-            return
-        }
-        request.value = pairingID.subdata(in: request.offset ..< pairingID.count)
-        peripheral.respond(to: request, withResult: .success)
+        // Nothing is readable: the iPhone finds its Mac by challenging it (see Wire.swift).
+        peripheral.respond(to: request, withResult: .requestNotSupported)
     }
 
     func peripheralManager(_ peripheral: CBPeripheralManager, didReceiveWrite requests: [CBATTRequest]) {

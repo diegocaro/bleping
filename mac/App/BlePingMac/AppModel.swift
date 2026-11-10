@@ -21,8 +21,8 @@ final class AppModel: ObservableObject {
         engine.onChange = { [weak self] in
             MainActor.assumeIsolated { self?.objectWillChange.send() }
         }
-        engine.onLog = { [weak self] line in
-            MainActor.assumeIsolated { self?.appendLog(line) }
+        engine.onLog = { [weak self] line, personal in
+            MainActor.assumeIsolated { self?.appendLog(line, personal: personal) }
         }
         engine.options.catchUp = catchUp
         engine.start()
@@ -32,9 +32,16 @@ final class AppModel: ObservableObject {
 
     private static let logger = Logger(subsystem: "dev.bleping.macapp", category: "engine")
 
-    private func appendLog(_ line: String) {
+    private func appendLog(_ line: String, personal: Bool = false) {
         // Also to the system log:  log stream --predicate 'subsystem == "dev.bleping.macapp"'
-        Self.logger.notice("\(line, privacy: .public)")
+        // Lines quoting a notification or a device name are private there (shown as <private>),
+        // so titles don't end up in the system log or in diagnostic reports. The log window
+        // below still shows them in full.
+        if personal {
+            Self.logger.notice("\(line, privacy: .private)")
+        } else {
+            Self.logger.notice("\(line, privacy: .public)")
+        }
         logLines.append("\(Self.clock.string(from: Date()))  \(line)")
         if logLines.count > 500 { logLines.removeFirst(logLines.count - 500) }
     }

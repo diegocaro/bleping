@@ -17,10 +17,8 @@ enum PairingStep: Equatable {
     case searching
     /// Connected, exchanging keys.
     case exchanging
-    /// The Mac shows a code; waiting for the user to type it.
-    case enterCode
-    /// Code matched; waiting for the Mac to confirm.
-    case confirming
+    /// Showing this code; waiting for the user to type it on the Mac.
+    case showCode(String)
     /// Done: paired with the Mac of this name. Shown briefly before the sheet closes.
     case paired(String)
     case failed(String)
@@ -44,7 +42,6 @@ final class MacLink: NSObject, ObservableObject, CBCentralManagerDelegate, CBPer
     @Published private(set) var connected = false
     @Published private(set) var paired: PairedMac? = PairedMacStore.load()
     @Published private(set) var pairingStep: PairingStep?
-    @Published var codeError: String?
     /// Newest first. Saved on the phone so the list survives the app being restarted, but only
     /// for a day (see HistoryStore).
     @Published private(set) var history: [ReceivedNotification] = HistoryStore.load() {
@@ -75,6 +72,10 @@ final class MacLink: NSObject, ObservableObject, CBCentralManagerDelegate, CBPer
     @Published private(set) var pairingHint: String?
     private let reassembler = Reassembler()
     private var exchange: Exchange?
+    /// The challenge sent to a Mac we connected to, before trusting it as ours.
+    private var challenge: (peripheral: UUID, nonce: Data)?
+    /// How long a Mac has to answer the challenge.
+    private static let verifyTimeout: TimeInterval = 10
 
     /// The iPhone's half of one pairing attempt.
     private struct Exchange {
@@ -107,7 +108,6 @@ final class MacLink: NSObject, ObservableObject, CBCentralManagerDelegate, CBPer
         central?.stopScan()
         skipped = [:]
         exchange = Exchange()
-        codeError = nil
         pairingHint = nil
         pairingStep = .searching
         scan()
@@ -127,17 +127,6 @@ final class MacLink: NSObject, ObservableObject, CBCentralManagerDelegate, CBPer
         pairingStep = nil
         disconnect()
         scan()
-    }
-
-    func submitCode(_ text: String) {
-        guard let exchange, let code = exchange.code, let key = exchange.key else { return }
-        guard text.filter(\.isNumber) == code else {
-            codeError = "That doesn't match the code on your Mac. Check it and try again."
-            return
-        }
-        codeError = nil
-        pairingStep = .confirming
-        write(.phoneConfirm(proof: PairingCrypto.proof("phone", key: key), phoneName: UIDevice.current.name))
     }
 
     func clearHistory() {
@@ -179,6 +168,7 @@ final class MacLink: NSObject, ObservableObject, CBCentralManagerDelegate, CBPer
         if let peripheral { central?.cancelPeripheralConnection(peripheral) }
         peripheral = nil
         characteristics = [:]
+        challenge = nil
         connected = false
     }
 
@@ -202,9 +192,10 @@ final class MacLink: NSObject, ObservableObject, CBCentralManagerDelegate, CBPer
         guard p.identifier == peripheral?.identifier else { return }
         peripheral = nil
         characteristics = [:]
+        challenge = nil
         connected = false
         switch pairingStep {
-        case .exchanging?, .enterCode?, .confirming?:
+        case .exchanging?, .showCode?:
             failPairing("Lost the connection to the Mac. Try again.")
         default:
             break
@@ -222,6 +213,9 @@ final class MacLink: NSObject, ObservableObject, CBCentralManagerDelegate, CBPer
 
     private func handlePairing(_ message: PairMessage?, from p: CBPeripheral) {
         dbg("← Mac: \(message.map { "\($0)".prefix(30).description } ?? "unreadable message")")
+        if let challenge, challenge.peripheral == p.identifier {
+            return handleVerification(message, nonce: challenge.nonce, from: p)
+        }
         guard var ex = exchange, let message else { return }
         switch message {
         case .commit(let macKey, let commitment):
@@ -241,14 +235,20 @@ final class MacLink: NSObject, ObservableObject, CBCentralManagerDelegate, CBPer
                 write(.failed("Security check failed"))
                 return failPairing("Security check failed. Try again.")
             }
-            ex.key = PairingCrypto.pairingKey(secret: secret, phoneKey: ex.phoneKey, macKey: macKey,
-                                              phoneNonce: ex.phoneNonce, macNonce: macNonce)
-            ex.code = PairingCrypto.code(phoneKey: ex.phoneKey, macKey: macKey,
-                                         phoneNonce: ex.phoneNonce, macNonce: macNonce)
+            let key = PairingCrypto.pairingKey(secret: secret, phoneKey: ex.phoneKey, macKey: macKey,
+                                               phoneNonce: ex.phoneNonce, macNonce: macNonce)
+            let code = PairingCrypto.code(phoneKey: ex.phoneKey, macKey: macKey,
+                                          phoneNonce: ex.phoneNonce, macNonce: macNonce)
+            ex.key = key
+            ex.code = code
             exchange = ex
-            pairingStep = .enterCode
+            // Show the code for the user to type on the Mac, and prove to the Mac we hold the key.
+            pairingStep = .showCode(code)
+            write(.phoneConfirm(proof: PairingCrypto.proof("phone", key: key), phoneName: UIDevice.current.name))
 
         case .macConfirm(let proof, let pairingID, let macName):
+            // Sent only once the user typed our code on the Mac.
+            guard case .showCode? = pairingStep else { return }
             guard let key = ex.key, PairingCrypto.checkProof(proof, role: "mac", key: key) else {
                 return failPairing("The Mac's confirmation didn't check out. Try again.")
             }
@@ -266,8 +266,8 @@ final class MacLink: NSObject, ObservableObject, CBCentralManagerDelegate, CBPer
             DispatchQueue.main.asyncAfter(deadline: .now() + 2.5) { [weak self] in
                 if case .paired? = self?.pairingStep { self?.pairingStep = nil }
             }
-            // Already connected to the right Mac: go straight to receiving notifications.
-            if let id = characteristics[Wire.pairingIDUUID] { p.readValue(for: id) }
+            // This Mac just proved it holds the key: go straight to receiving notifications.
+            if let events = characteristics[Wire.eventsUUID] { p.setNotifyValue(true, for: events) }
 
         case .failed(let reason):
             if pairingStep == .exchanging, reason.contains("pairing mode") {
@@ -284,6 +284,30 @@ final class MacLink: NSObject, ObservableObject, CBCentralManagerDelegate, CBPer
         default:
             break
         }
+    }
+
+    /// Asks a Mac we connected to to prove it holds our pairing key. Anyone can advertise the
+    /// bleping service, so nothing is trusted (or shown as connected) until this passes.
+    private func startVerification(_ p: CBPeripheral) {
+        let nonce = PairingCrypto.randomBytes(PairMessage.nonceLength)
+        challenge = (p.identifier, nonce)
+        dbg("Checking this is our Mac…")
+        write(.verify(nonce: nonce))
+        DispatchQueue.main.asyncAfter(deadline: .now() + Self.verifyTimeout) { [weak self] in
+            guard let self, challenge?.nonce == nonce, peripheral?.identifier == p.identifier else { return }
+            skip(p, "(no answer to the check)")
+        }
+    }
+
+    private func handleVerification(_ message: PairMessage?, nonce: Data, from p: CBPeripheral) {
+        guard let paired, case .verified(let proof)? = message,
+              PairingCrypto.checkVerifyProof(proof, nonce: nonce, pairingKey: SymmetricKey(data: paired.key)) else {
+            // Another bleping Mac, one that no longer has our pairing, or an impostor.
+            return skip(p, "(not our Mac)")
+        }
+        challenge = nil
+        dbg("Mac verified")
+        if let events = characteristics[Wire.eventsUUID] { p.setNotifyValue(true, for: events) }
     }
 
     private func failPairing(_ reason: String) {
@@ -407,7 +431,7 @@ final class MacLink: NSObject, ObservableObject, CBCentralManagerDelegate, CBPer
     func peripheral(_ p: CBPeripheral, didDiscoverServices error: Error?) {
         dbg("Services: \(p.services?.map { String($0.uuid.uuidString.prefix(8)) } ?? []) \(error?.localizedDescription ?? "")")
         guard let service = p.services?.first(where: { $0.uuid == Wire.serviceUUID }) else { return skip(p, "(no bleping service)") }
-        p.discoverCharacteristics([Wire.pairingUUID, Wire.eventsUUID, Wire.pairingIDUUID], for: service)
+        p.discoverCharacteristics([Wire.pairingUUID, Wire.eventsUUID], for: service)
     }
 
     func peripheral(_ p: CBPeripheral, didDiscoverCharacteristicsFor service: CBService, error: Error?) {
@@ -416,8 +440,9 @@ final class MacLink: NSObject, ObservableObject, CBCentralManagerDelegate, CBPer
         if pairingStep == .searching, let pairingChar = characteristics[Wire.pairingUUID] {
             // Listen for the Mac's answers first; the hello goes out once that's on.
             p.setNotifyValue(true, for: pairingChar)
-        } else if paired != nil, let id = characteristics[Wire.pairingIDUUID] {
-            p.readValue(for: id)   // is this our Mac?
+        } else if paired != nil, exchange == nil, let pairingChar = characteristics[Wire.pairingUUID] {
+            // Is this our Mac? Listen for its answer, then challenge it.
+            if pairingChar.isNotifying { startVerification(p) } else { p.setNotifyValue(true, for: pairingChar) }
         } else {
             skip(p, "(not pairing and not paired)")
         }
@@ -429,6 +454,8 @@ final class MacLink: NSObject, ObservableObject, CBCentralManagerDelegate, CBPer
         if c.uuid == Wire.pairingUUID, c.isNotifying, pairingStep == .searching, let exchange {
             pairingStep = .exchanging
             write(.hello(phoneKey: exchange.phoneKey))
+        } else if c.uuid == Wire.pairingUUID, c.isNotifying, paired != nil, exchange == nil, challenge == nil {
+            startVerification(p)
         } else if c.uuid == Wire.eventsUUID, c.isNotifying {
             connected = true
             write(.catchUp)   // get whatever arrived while we were away or restarting
@@ -443,12 +470,6 @@ final class MacLink: NSObject, ObservableObject, CBCentralManagerDelegate, CBPer
         if let error { dbg("Read/notify error: \(error.localizedDescription)") }
         guard error == nil, let value = c.value else { return }
         switch c.uuid {
-        case Wire.pairingIDUUID:
-            if let paired, value == paired.pairingID, let events = characteristics[Wire.eventsUUID] {
-                p.setNotifyValue(true, for: events)
-            } else if pairingStep == nil {
-                skip(p, "(pairing ID doesn't match)")   // a different Mac, or ours was unpaired on the Mac side
-            }
         case Wire.pairingUUID:
             handlePairing(PairMessage(value), from: p)
         case Wire.eventsUUID:

@@ -41,8 +41,8 @@ You need a Mac (macOS 14 or later) with Bluetooth, and the iPhone nearby.
    **Full Disk Access** for bleping (System Settings › Privacy & Security › Full Disk Access), then
    click **Retry**. This lets the Mac app see the Mac's notifications.
 3. On the iPhone, open bleping and tap **Pair with Mac**. Allow Bluetooth when asked.
-4. On the Mac, click the bell › **Pair iPhone…**. A 6-digit code appears on the Mac. Type it on the
-   iPhone. Allow notifications when asked.
+4. On the Mac, click the bell › **Pair iPhone…**. A 6-digit code appears on the iPhone. Type it on
+   the Mac. Allow notifications when asked.
 5. **Background test:** lock the iPhone. On the Mac, open Settings › Troubleshooting and click
    **Send Test**. A "Test notification" appears on the iPhone's Lock Screen within a few seconds.
 6. Any notification on the Mac (for example from Calendar or Mail) also appears on the iPhone, showing

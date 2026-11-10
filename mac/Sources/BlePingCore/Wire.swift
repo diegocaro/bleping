@@ -8,12 +8,15 @@ import Foundation
 // How it works:
 //   1. The Mac is a BLE peripheral that always advertises `serviceUUID`.
 //   2. Pairing (once): the iPhone connects and the two run an ECDH key exchange over the
-//      `pairing` characteristic. Both derive a 6-digit code from the exchange; the Mac
-//      prints it and the user types it on the iPhone. Matching codes prove nobody sat in the
-//      middle. Both sides then keep the same 256-bit key.
-//   3. Afterwards the iPhone reconnects whenever the Mac is in range, checks the `pairingID`
-//      characteristic to find *its* Mac, and subscribes to `events`. Each Mac notification
-//      arrives encrypted (ChaCha20-Poly1305) with a key derived from the pairing key.
+//      `pairing` characteristic. Both derive a 6-digit code from the exchange; the iPhone
+//      shows it and the user types it on the Mac. Matching codes prove nobody sat in the
+//      middle, and because the code is typed on the Mac, only the iPhone in the user's hand
+//      can pair (another phone in range would show its own code, which the user never sees).
+//      Both sides then keep the same 256-bit key.
+//   3. Afterwards the iPhone reconnects whenever the Mac is in range and challenges it: it
+//      writes a random nonce, and only a Mac holding the pairing key can answer. Then it
+//      subscribes to `events`. Each Mac notification arrives encrypted (ChaCha20-Poly1305)
+//      with a key derived from the pairing key.
 
 enum Wire {
     static let serviceUUID = CBUUID(string: "7268617C-DB3D-4D61-9142-9C2D94ACBE6C")
@@ -21,9 +24,6 @@ enum Wire {
     static let pairingUUID = CBUUID(string: "7268617C-0001-4D61-9142-9C2D94ACBE6C")
     /// Encrypted notifications, Mac → iPhone, by notification.
     static let eventsUUID = CBUUID(string: "7268617C-0002-4D61-9142-9C2D94ACBE6C")
-    /// Readable, not secret: identifies the current pairing, so an iPhone near several
-    /// bleping Macs connects to its own.
-    static let pairingIDUUID = CBUUID(string: "7268617C-0003-4D61-9142-9C2D94ACBE6C")
 
     static let advertisedName = "bleping"
     /// The Mac resends notifications from this far back when the iPhone reconnects;
@@ -41,10 +41,13 @@ enum PairMessage: Equatable {
     /// iPhone → Mac: the iPhone's nonce (16 bytes).
     case phoneNonce(Data)
     /// Mac → iPhone: the Mac's nonce, revealed only after it has seen the iPhone's.
+    /// Both sides can now work out the code; the iPhone shows it.
     case macNonce(Data)
-    /// iPhone → Mac, after the user typed a matching code: proof it holds the new key.
+    /// iPhone → Mac, right after the nonces: proof it holds the new key, and its name. The Mac
+    /// then asks the user to type the code the iPhone shows.
     case phoneConfirm(proof: Data, phoneName: String)
-    /// Mac → iPhone: the Mac's proof, plus the pairing ID and the Mac's name.
+    /// Mac → iPhone, once the user typed the matching code on the Mac: the Mac's proof, plus
+    /// the pairing ID and the Mac's name. The iPhone saves the pairing when it gets this.
     case macConfirm(proof: Data, pairingID: Data, macName: String)
     /// Either way: pairing stopped. The text is shown to the user.
     case failed(String)
@@ -52,6 +55,10 @@ enum PairMessage: Equatable {
     /// The iPhone sends this on every connect, because iOS can keep the subscription alive
     /// while the app restarts, so the Mac can't tell the app missed anything.
     case catchUp
+    /// iPhone → Mac, on every connect once paired: "prove you hold our key" (a fresh nonce).
+    case verify(nonce: Data)
+    /// Mac → iPhone: the answer to `verify` (see `PairingCrypto.verifyProof`).
+    case verified(proof: Data)
 
     static let keyLength = 65, nonceLength = 16, proofLength = 32, pairingIDLength = 16
 
@@ -65,6 +72,8 @@ enum PairMessage: Equatable {
         case .macConfirm(let proof, let id, let name): return Data([0x06]) + proof + id + Self.text(name)
         case .failed(let reason): return Data([0x7F]) + Self.text(reason, limit: 120)
         case .catchUp: return Data([0x10])
+        case .verify(let nonce): return Data([0x11]) + nonce
+        case .verified(let proof): return Data([0x12]) + proof
         }
     }
 
@@ -99,6 +108,12 @@ enum PairMessage: Equatable {
             self = .failed(rest(0))
         case 0x10:
             self = .catchUp
+        case 0x11:
+            guard body.count == n else { return nil }
+            self = .verify(nonce: body)
+        case 0x12:
+            guard body.count == p else { return nil }
+            self = .verified(proof: body)
         default:
             return nil
         }
@@ -148,6 +163,20 @@ enum PairingCrypto {
 
     static func checkProof(_ proof: Data, role: String, key: SymmetricKey) -> Bool {
         HMAC<SHA256>.isValidAuthenticationCode(proof, authenticating: Data("bleping-confirm-\(role)".utf8), using: key)
+    }
+
+    /// The Mac's answer to the iPhone's `verify` nonce. Uses its own key derived from the
+    /// pairing key, so it can't be confused with the pairing proofs or the event key.
+    static func verifyProof(nonce: Data, pairingKey: SymmetricKey) -> Data {
+        let key = HKDF<SHA256>.deriveKey(inputKeyMaterial: pairingKey, info: Data("bleping-verify-v1".utf8),
+                                         outputByteCount: 32)
+        return Data(HMAC<SHA256>.authenticationCode(for: Data("bleping-verify-mac".utf8) + nonce, using: key))
+    }
+
+    static func checkVerifyProof(_ proof: Data, nonce: Data, pairingKey: SymmetricKey) -> Bool {
+        let expected = verifyProof(nonce: nonce, pairingKey: pairingKey)
+        // Constant-time comparison.
+        return proof.count == expected.count && zip(proof, expected).reduce(0) { $0 | ($1.0 ^ $1.1) } == 0
     }
 
     /// "482913" → "482 913"
@@ -218,6 +247,8 @@ final class Reassembler {
         guard chunk.count >= Chunker.headerLength else { return nil }
         let bytes = [UInt8](chunk.prefix(Chunker.headerLength))
         let index = Int(bytes[1] >> 4), count = Int(bytes[1] & 0x0F) + 1
+        // A chunk can't sit past the end of its own message; drop it rather than trust it.
+        guard index < count else { return nil }
         if tag != bytes[0] || parts.count != count {
             tag = bytes[0]
             parts = Array(repeating: nil, count: count)

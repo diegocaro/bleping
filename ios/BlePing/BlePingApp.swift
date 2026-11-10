@@ -328,8 +328,6 @@ struct PairingView: View {
         return false
     }
     @AppStorage("showBluetoothLog") private var showLog = false
-    @State private var code = ""
-    @FocusState private var codeFocused: Bool
 
     var body: some View {
         NavigationStack {
@@ -365,24 +363,15 @@ struct PairingView: View {
                     StepIcon(symbol: "lock")
                     Text("Connecting securely…").font(.title3.weight(.semibold))
                     ProgressView()
-                case .enterCode?:
+                case .showCode(let code)?:
                     StepIcon(symbol: "number")
-                    Text("Enter the code shown on your Mac").font(.title3.weight(.semibold))
-                    TextField("000000", text: $code)
-                        .keyboardType(.numberPad)
-                        .textContentType(.oneTimeCode)
-                        .font(.system(size: 40, weight: .semibold, design: .monospaced))
+                    Text("Type this code on your Mac").font(.title3.weight(.semibold))
+                    Text(PairingCrypto.display(code))
+                        .font(.system(size: 44, weight: .semibold, design: .monospaced))
+                        .textSelection(.enabled)
+                    Text("Your Mac asks for it in bleping. Never type it anywhere else.")
                         .multilineTextAlignment(.center)
-                        .focused($codeFocused)
-                        .onAppear { codeFocused = true }
-                        .onChange(of: code) { _, newValue in
-                            let digits = String(newValue.filter(\.isNumber).prefix(6))
-                            if digits != newValue { code = digits }
-                            if digits.count == 6 { link.submitCode(digits) }
-                        }
-                    if let error = link.codeError {
-                        Text(error).foregroundStyle(.red).multilineTextAlignment(.center)
-                    }
+                        .foregroundStyle(.secondary)
                 case .paired(let macName)?:
                     StepIcon(symbol: "checkmark", color: .green)
                     Text("Paired with \(macName)").font(.title3.weight(.semibold))
@@ -390,18 +379,11 @@ struct PairingView: View {
                     Text("Your Mac's notifications will now show up on this iPhone.")
                         .multilineTextAlignment(.center)
                         .foregroundStyle(.secondary)
-                case .confirming?:
-                    StepIcon(symbol: "checkmark")
-                    Text("Pairing…").font(.title3.weight(.semibold))
-                    ProgressView()
                 case .failed(let reason)?:
                     StepIcon(symbol: "xmark", color: .red)
                     Text("Pairing failed").font(.title3.weight(.semibold))
                     Text(reason).multilineTextAlignment(.center).foregroundStyle(.secondary)
-                    Button("Try Again") {
-                        code = ""
-                        link.startPairing()
-                    }
+                    Button("Try Again") { link.startPairing() }
                     .buttonStyle(.borderedProminent)
                 case nil:
                     EmptyView()

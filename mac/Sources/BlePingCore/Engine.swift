@@ -30,8 +30,9 @@ public final class Engine {
         case waiting
         /// The iPhone connected; keys are being exchanged.
         case exchanging
-        /// Type this code on the iPhone ("482913").
-        case code(String)
+        /// Ask the user to type the code shown on the iPhone named `phoneName`. `error` says why
+        /// the last try was wrong.
+        case enterCode(phoneName: String, error: String?)
         case failed(String)
     }
 
@@ -75,9 +76,10 @@ public final class Engine {
 
     /// Called on the main queue whenever any state above changes.
     public var onChange: (() -> Void)?
-    /// Log lines, for the CLI's output or a log view.
-    public var onLog: ((String) -> Void)? {
-        didSet { logHandler = { [weak self] line in self?.onLog?(line) } }
+    /// Log lines, for the CLI's output or a log view. `personal` marks lines that quote a
+    /// notification's text or a device's name: keep those out of the system log.
+    public var onLog: ((_ line: String, _ personal: Bool) -> Void)? {
+        didSet { logHandler = { [weak self] line, personal in self?.onLog?(line, personal) } }
     }
 
     public var options: Options {
@@ -99,9 +101,6 @@ public final class Engine {
         self.options = options
     }
 
-    /// "482 913" for "482913".
-    public static func displayCode(_ code: String) -> String { PairingCrypto.display(code) }
-
     /// Where the pairing key is kept.
     public static var pairingFile: URL { PairingStore.url }
 
@@ -113,7 +112,7 @@ public final class Engine {
     public func start() {
         use(PairingStore.load())
         if let paired {
-            log("Paired with \"\(paired.phoneName)\" since \(DateFormatter.localizedString(from: paired.pairedAt, dateStyle: .medium, timeStyle: .short))")
+            log("Paired with \"\(paired.phoneName)\" since \(DateFormatter.localizedString(from: paired.pairedAt, dateStyle: .medium, timeStyle: .short))", personal: true)
         }
 
         peripheral.onStateChange = { [weak self] state in
@@ -135,6 +134,14 @@ public final class Engine {
                 log(options.catchUp ? "iPhone asked for missed notifications"
                                     : "iPhone asked for missed notifications (ignored: sending missed notifications is off)")
                 replay(to: central)
+            } else if case .verify(let nonce)? = PairMessage(data) {
+                // The iPhone checks it found *its* Mac before trusting the connection.
+                if let paired {
+                    peripheral.sendPairing(.verified(proof: PairingCrypto.verifyProof(
+                        nonce: nonce, pairingKey: paired.pairingKey)), to: central)
+                } else {
+                    peripheral.sendPairing(.failed("This Mac isn't paired with an iPhone."), to: central)
+                }
             } else if let session {
                 session.handle(data, from: central)
             } else if case .hello? = PairMessage(data) {
@@ -150,7 +157,7 @@ public final class Engine {
     public func startPairing() {
         // An iPhone is already exchanging keys or showing the code: don't throw that away.
         switch pairing {
-        case .exchanging?, .code?: return
+        case .exchanging?, .enterCode?: return
         default: break
         }
         let session = PairingSession(peripheral: peripheral) { [weak self] phone in
@@ -164,7 +171,7 @@ public final class Engine {
             guard let self else { return }
             switch progress {
             case .phoneConnecting: pairing = .exchanging
-            case .code(let code): pairing = .code(code)
+            case .enterCode(let name, let error): pairing = .enterCode(phoneName: name, error: error)
             case .failed(let reason): pairing = .failed(reason)
             }
             changed()
@@ -173,9 +180,14 @@ public final class Engine {
         pairing = .waiting
         log("""
             Pairing mode. On your iPhone, open bleping and tap "Pair with Mac".
-              A 6-digit code will show here; type it on the iPhone.
+              Then type the 6-digit code it shows here.
             """)
         changed()
+    }
+
+    /// The user typed the code shown on the iPhone.
+    public func submitCode(_ code: String) {
+        session?.submitCode(code)
     }
 
     public func cancelPairing() {
@@ -199,7 +211,6 @@ public final class Engine {
         paired = phone
         self.phone = phone.map { Phone(name: $0.phoneName, pairedAt: $0.pairedAt) }
         eventKey = phone.map { EventCrypto.eventKey(pairingKey: $0.pairingKey) }
-        peripheral.pairingID = phone?.pairingID ?? Data()
     }
 
     // MARK: Notifications
@@ -263,21 +274,21 @@ public final class Engine {
             if peripheral.connectedPhones > 0 {
                 do {
                     peripheral.sendEvent(try EventCrypto.seal(notification, key: eventKey))
-                    log("\(describe) → sent to iPhone (encrypted)")
+                    log("\(describe) → sent to iPhone (encrypted)", personal: true)
                     delivery = .sent
                 } catch {
                     log("Could not encrypt notification: \(error)")
                     delivery = .queued
                 }
             } else if options.catchUp {
-                log("\(describe) → iPhone not connected; it gets this when it reconnects (within 1 h)")
+                log("\(describe) → iPhone not connected; it gets this when it reconnects (within 1 h)", personal: true)
                 delivery = .queued
             } else {
-                log("\(describe) → iPhone not connected; skipped (catching up is off)")
+                log("\(describe) → iPhone not connected; skipped (catching up is off)", personal: true)
                 delivery = .skipped
             }
         } else {
-            log("\(describe) (not sent: no iPhone paired)")
+            log("\(describe) (not sent: no iPhone paired)", personal: true)
             delivery = .notPaired
         }
         forwarded.insert(Forwarded(id: notification.id, app: notification.app, bundleID: notification.bundleID,

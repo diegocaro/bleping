@@ -186,12 +186,8 @@ struct PairingBox: View {
             case .exchanging:
                 ProgressView().controlSize(.small)
                 Text("iPhone found. Connecting securely…")
-            case .code(let code):
-                Text("Type this code on your iPhone")
-                    .foregroundStyle(.secondary)
-                Text(Engine.displayCode(code))
-                    .font(.system(size: 40, weight: .semibold, design: .monospaced))
-                    .textSelection(.enabled)
+            case .enterCode(let phoneName, let error):
+                CodeEntry(phoneName: phoneName, error: error, engine: engine)
             case .failed(let reason):
                 Image(systemName: "xmark.circle").font(.title).foregroundStyle(.red)
                 Text("Pairing failed").font(.headline)
@@ -204,6 +200,41 @@ struct PairingBox: View {
         }
         .frame(maxWidth: .infinity)
         .padding(.vertical, 8)
+    }
+}
+
+/// Where the user types the code the iPhone shows. Typing it here (not on the iPhone) is what
+/// stops another phone in range from pairing: it would show a code the user never sees.
+struct CodeEntry: View {
+    let phoneName: String
+    let error: String?
+    let engine: Engine
+    @State private var code = ""
+    @FocusState private var focused: Bool
+
+    var body: some View {
+        Text("Type the code shown on **\(phoneName)**")
+            .multilineTextAlignment(.center)
+        TextField("000000", text: $code)
+            .font(.system(size: 32, weight: .semibold, design: .monospaced))
+            .multilineTextAlignment(.center)
+            .textFieldStyle(.roundedBorder)
+            .frame(width: 180)
+            .focused($focused)
+            .onAppear { focused = true }
+            .onChange(of: code) { newValue in
+                let digits = String(newValue.filter(\.isNumber).prefix(6))
+                if digits != newValue { code = digits }
+                if digits.count == 6 { engine.submitCode(digits) }
+            }
+            // A wrong try clears the field for the next one.
+            .onChange(of: error) { _ in code = "" }
+        if let error {
+            Text(error).font(.caption).foregroundStyle(.red).multilineTextAlignment(.center)
+        } else {
+            Text("If you don't see this code on your iPhone, click Cancel.")
+                .font(.caption).foregroundStyle(.secondary).multilineTextAlignment(.center)
+        }
     }
 }
 

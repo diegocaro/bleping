@@ -21,7 +21,7 @@ struct Options {
         usage: bleping [pair | unpair] [options]
 
           bleping            forward Mac notifications to the paired iPhone
-          bleping pair       pair with the iPhone app (shows a 6-digit code), then keep forwarding
+          bleping pair       pair with the iPhone app (type the code it shows), then keep forwarding
           bleping unpair     forget the paired iPhone
 
           --interval SEC     how often to check for new notifications (default 1)
@@ -85,7 +85,7 @@ if options.command == .unpair {
 }
 
 let engine = Engine(options: options.engine)
-engine.onLog = printLog
+engine.onLog = { line, _ in printLog(line) }   // your own terminal: show everything
 engine.start()
 
 if options.command == .pair {
@@ -93,6 +93,23 @@ if options.command == .pair {
 } else if engine.phone == nil {
     printLog("No iPhone paired yet.")
     engine.startPairing()
+}
+// While pairing, each line typed in the terminal is a try at the code the iPhone shows.
+var typed = Data()
+FileHandle.standardInput.readabilityHandler = { handle in
+    let chunk = handle.availableData
+    DispatchQueue.main.async {
+        if chunk.isEmpty {   // stdin closed (e.g. running in the background)
+            FileHandle.standardInput.readabilityHandler = nil
+            return
+        }
+        typed += chunk
+        while let newline = typed.firstIndex(of: UInt8(ascii: "\n")) {
+            let line = String(decoding: typed[..<newline], as: UTF8.self)
+            typed = Data(typed[typed.index(after: newline)...])
+            if case .enterCode? = engine.pairing { engine.submitCode(line) }
+        }
+    }
 }
 if options.test {
     engine.sendTest()
